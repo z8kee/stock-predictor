@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <!--Title of home page-->
+    <title>
+        Stock predictor
+    </title>
+    <h1>Stock Predictor</h1>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #121212; color: white; text-align: center; }
+        #chart-container { width: 80%; height: 500px; margin: 20px auto; border: 1px solid #333; }
+        select { padding: 10px; font-size: 16px; margin-top: 20px; background: #2b2b2b; color: white; border: 1px solid #555;}
+    </style>
+</head>
+<body>
+    <section>
+        <label>Select stock
+            <select id="Select Stock">
+                <option value="GC=F">Gold</option>
+                <option value="EURUSD=X">EUR/USD</option>
+                <option value="AUDUSDX">AUD/USD</option>
+                <option value="GBPUSD=X">GBP/USD</option>
+                <option value="USDJPY=X">USD/JPY</option>
+            </select>
+        </label>
+        <label>Select timeframe
+            <select id="Select Timeframe">
+                <option value="1m">1 minute</option>
+                <option value="5m">5 minutes</option>
+                <option value="15m">15 minutes</option>
+                <option value="1h">1 hour</option>
+                <option value="1d">1 day</option>
+            </select>
+        </label>
+    </section>
+    <div id="tvchart"></div>
+    <script src="static/view.js"></script>
+</body>
