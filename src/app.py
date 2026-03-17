@@ -1,9 +1,8 @@
 # app.py
 from flask import Flask, render_template, jsonify
-import yfinance as yf
-import pandas as pd
+import yfinance as yf, pandas as pd, numpy as np, tensorflow as tf, pickle
 from predictor import SentimentAnalyser
-
+from finance import compute_indicators_and_pct
 app = Flask(__name__)
 stock_cache = {}
 
@@ -118,6 +117,86 @@ def get_news_sentiment(ticker):
     except Exception as e:
         print(f"Error fetching or analyzing news: {e}")
         return jsonify({"error": "Could not fetch or analyze news"}), 500
+
+# Cache models so they don't reload on every request
+model_cache = {}
+
+def get_models(timeframe):
+    if timeframe not in model_cache:
+        custom_objects = {'mse': tf.keras.losses.MeanAbsoluteError, 'mae': tf.keras.losses.MeanAbsoluteError}
+        model_cache[timeframe] = {
+            'predictor': tf.keras.models.load_model(f'models/predictor_{timeframe}.h5', custom_objects=custom_objects),
+            'autoencoder': tf.keras.models.load_model(f'models/autoencoder_{timeframe}.h5', custom_objects=custom_objects),
+            'f_scaler': pickle.load(open(f'models/scaler_features_{timeframe}.pkl', 'rb')),
+            'anom_scaler': pickle.load(open(f'models/scaler_anom_{timeframe}.pkl', 'rb')),
+        }
+    return model_cache[timeframe]
+
+@app.route('/api/predict/<ticker>/<timeframe>')
+def predict(ticker, timeframe):
+    try:
+        feature_cols = ['Open', 'High', 'Low', 'Close',
+                        'VIX', 'EMA_Dist', '50TD', '200TD',
+                        'EMA_Spread', 'Rolling_WVAP', 'VWAP_Dist', 'Hour_Sin',
+                        'Hour_Cos', 'is_new_york', 'is_london', 'is_asia',
+                        'Volatility', 'RSI', 'ROC', 'BB_Position',
+                        'Stoch_K', 'Stoch_D']
+
+        # 1. Fetch raw data and compute indicators
+        period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
+        raw_df = yf.download(ticker, interval=timeframe, period=period_map.get(timeframe, '60d'), progress=False)
+
+        vix_df = yf.download("^VIX", period="5d", progress=False)
+        if isinstance(vix_df.columns, pd.MultiIndex):
+            vix_df.columns = vix_df.columns.get_level_values(0)
+        vix_series = vix_df['Close'].rename("VIX")
+
+        df = compute_indicators_and_pct(ticker, raw_df, vix_series)
+        df.dropna(inplace=True)
+
+        if len(df) < 60:
+            return jsonify({"error": "Not enough data for prediction"}), 400
+
+        # 2. Build 60-step window
+        models = get_models(timeframe)
+        window = df[feature_cols].values[-60:]  #last 60 steps of data
+        window_scaled = models['f_scaler'].transform(window)
+        x_input = window_scaled.reshape(1, 60, 22)
+
+        # 3. Anomaly score
+        recon = models['autoencoder'].predict(x_input, verbose=0)
+        anomaly_raw = np.mean(np.abs(x_input - recon))
+        anomaly_scaled = models['anom_scaler'].transform([[anomaly_raw]])  # (1, 1)
+
+        # 4. Sentiment score from latest news
+        headlines = []
+        for item in yf.Ticker(ticker).news[:5]:
+            content = item.get('content', item)
+            title = content.get('title', '')
+            if title:
+                headlines.append(title)
+        sentiment_score = float(analyser.get_sentiment_score(headlines)) if headlines else 0.0
+        sentiment_input = np.array([[sentiment_score]])
+
+        # 5. Predict
+        probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
+        predicted_class = int(np.argmax(probs))
+        labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
+
+        return jsonify({
+            'signal': labels[predicted_class],
+            'probabilities': {
+                'sell': float(analyser.apply_sentiment_scaling(probs[0]))[1],
+                'hold': float(probs[1]),
+                'buy':  float(analyser.apply_sentiment_scaling(probs[2]))[0]
+            },
+            'sentiment': sentiment_score,
+            'anomaly': float(anomaly_raw)
+        })
+
+    except Exception as e:
+        print(f"Prediction error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
