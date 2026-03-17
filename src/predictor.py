@@ -1,11 +1,11 @@
 import tensorflow as tf, numpy as np, pandas as pd, pickle, glob, os, gc
 from keras.models import Model
 from keras.layers import LSTM, Conv1D, MaxPooling1D, Dense, Dropout, Concatenate, Input, RepeatVector, TimeDistributed, LayerNormalization, LeakyReLU
-from transformers import BertTokenizer, BertForSequenceClassification
+from transformers import BertTokenizer, TFBertForSequenceClassification
 from keras.callbacks import EarlyStopping
 from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from sklearn.utils.class_weight import compute_class_weight
-from sklearn.metrics import f1_score, classification_report
+from sklearn.metrics import f1_score
 from matplotlib import pyplot as plt
 
 class SentimentAnalyser:
@@ -13,7 +13,7 @@ class SentimentAnalyser:
         print("Loading finbert")
 
         self.tokenizer = BertTokenizer.from_pretrained('ProsusAI/finbert')
-        self.model = BertForSequenceClassification.from_pretrained('ProsusAI/finbert', from_pt=True)
+        self.model = TFBertForSequenceClassification.from_pretrained('ProsusAI/finbert')
         self.max_weight = max_weight
 
     def get_sentiment_score(self, headlines):
