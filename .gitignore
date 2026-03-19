@@ -1,4 +1,4 @@
-data
 notebooks
-src\__pycache__
 .vscode
+data
+src\__pycache__
