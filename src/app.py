@@ -1,6 +1,6 @@
 # app.py
 from flask import Flask, render_template, jsonify
-import yfinance as yf, pandas as pd, numpy as np, tensorflow as tf, pickle
+import yfinance as yf, pandas as pd, numpy as np, tensorflow as tf, pickle, tf_keras
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
 app = Flask(__name__)
@@ -34,7 +34,7 @@ def get_history(ticker, interval):
             combined_df = pd.concat([cached_df, new_df])
         else:
             # CACHE MISS
-            print(f"First load for {ticker}... Fetching full {period} history.")
+            print(f"First load for {ticker}, Fetching full {period} history.")
             combined_df = yf.download(tickers=ticker, period=period, interval=interval, progress=False)
 
         # 1. Drop any missing data points (NaNs)
@@ -123,10 +123,10 @@ model_cache = {}
 
 def get_models(timeframe):
     if timeframe not in model_cache:
-        custom_objects = {'mse': tf.keras.losses.MeanAbsoluteError, 'mae': tf.keras.losses.MeanAbsoluteError}
+        custom_objects = {'mse': tf_keras.losses.MeanAbsoluteError, 'mae': tf_keras.losses.MeanAbsoluteError}
         model_cache[timeframe] = {
-            'predictor': tf.keras.models.load_model(f'models/predictor_{timeframe}.h5', custom_objects=custom_objects),
-            'autoencoder': tf.keras.models.load_model(f'models/autoencoder_{timeframe}.h5', custom_objects=custom_objects),
+            'predictor': tf_keras.models.load_model(f'models/predictor_{timeframe}.h5', custom_objects=custom_objects),
+            'autoencoder': tf_keras.models.load_model(f'models/autoencoder_{timeframe}.h5', custom_objects=custom_objects),
             'f_scaler': pickle.load(open(f'models/scaler_features_{timeframe}.pkl', 'rb')),
             'anom_scaler': pickle.load(open(f'models/scaler_anom_{timeframe}.pkl', 'rb')),
         }
@@ -183,12 +183,14 @@ def predict(ticker, timeframe):
         predicted_class = int(np.argmax(probs))
         labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
 
+        adj_buy, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[0], sentiment_score)
+        
         return jsonify({
             'signal': labels[predicted_class],
             'probabilities': {
-                'sell': float(analyser.apply_sentiment_scaling(probs[0]))[1],
+                'sell': float(adj_sell),
                 'hold': float(probs[1]),
-                'buy':  float(analyser.apply_sentiment_scaling(probs[2]))[0]
+                'buy':  float(adj_buy)
             },
             'sentiment': sentiment_score,
             'anomaly': float(anomaly_raw)

@@ -3,7 +3,7 @@
 <head>
     <!--Title of home page-->
     <title>
-        Stock predictor
+        Stock Predictor
     </title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,7 +11,7 @@
     <style>
         body { font-family: Arial, sans-serif; background-color: #121212; color: white; text-align: center; }
         #tvchart { width: 80%; height: 500px; margin: 20px auto; border: 1px solid #333; }
-        select { padding: 10px; font-size: 16px; margin-top: 20px; background: #2b2b2b; color: white; border: 1px solid #555;}
+        select, button{ padding: 10px; font-size: 16px; margin-top: 20px; background: #2b2b2b; color: white; border: 1px solid #555;}
        #loading-container { width: 100%; height: 4px; background: #333; }
        #loading-bar { width: 0%; height: 100%; background: #4caf50; transition: width 0.3s ease; display: none; }
         @keyframes loading {0% { width: 0%; } 100% { width: 100%; }}
@@ -39,6 +39,7 @@
             </select>
         </label>
         <button type="button" class="News-btn">View Current News for Stock</button>
+        <button type="button" class="Predict-btn">Start Prediction</button>
     </section>
     <div id="loading-container">
         <div id="loading-bar" class="loading-bar" style="display: none;"></div>

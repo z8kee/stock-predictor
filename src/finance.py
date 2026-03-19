@@ -1,33 +1,32 @@
 import yfinance as yf, matplotlib.pyplot as plt, pandas as pd, os, numpy as np
 
 def apply_triple_barrier(df, forward_window, profit_factor, stop_factor):
-    signals = np.ones(len(df))
     closes = df['Close'].values
     highs = df['High'].values
     lows = df['Low'].values
-    
-    atrs = df['ATR_pct'].values 
+    atrs = df['ATR_pct'].values
+    n = len(df)
+    signals = np.ones(n)
 
-    for i in range(len(df) - forward_window):
-        current_close = closes[i]
-        
-        # multiply current price by atr factor
-        profit_target = current_close * (1 + (profit_factor * atrs[i]))
-        stop_loss = current_close * (1 - (stop_factor * atrs[i]))
+    profit_targets = closes * (1 + profit_factor * atrs)
+    stop_losses = closes * (1 - stop_factor * atrs)
 
-        hit = False
-        for j in range(1, forward_window + 1):
-            if highs[i+j] >= profit_target:
-                signals[i] = 2 # buy
-                hit = True
-                break
-            elif lows[i+j] <= stop_loss:
-                signals[i] = 0 # sell
-                hit = True
-                break
+    for i in range(n - forward_window):
+        future_highs = highs[i+1 : i+1+forward_window]
+        future_lows = lows[i+1 : i+1+forward_window]
 
-        if not hit:
-            signals[i] = 1 # hold
+        buy_hit = np.argmax(future_highs >= profit_targets[i])
+        sell_hit = np.argmax(future_lows <= stop_losses[i])
+
+        buy_triggered = future_highs[buy_hit] >= profit_targets[i]
+        sell_triggered = future_lows[sell_hit] <= stop_losses[i]
+
+        if buy_triggered and sell_triggered:
+            signals[i] = 2 if buy_hit <= sell_hit else 0
+        elif buy_triggered:
+            signals[i] = 2
+        elif sell_triggered:
+            signals[i] = 0
 
     return signals
 

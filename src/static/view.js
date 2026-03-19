@@ -2,6 +2,7 @@ const assetSelect = document.getElementById('Select-Stock');
 const intervalSelect = document.getElementById('Select-Timeframe');
 const loadingBar = document.getElementById('loading-bar');
 const newsBtn = document.querySelector('.News-btn');
+const predictBtn = document.querySelector('.Predict-btn');
 
 // --- Chart Initialisation ---
 const chart = LightweightCharts.createChart(document.getElementById('tvchart'), {
@@ -147,10 +148,96 @@ async function fetchAndRenderNews() {
     }
 }
 
+let signalMarkers = [];
+let predictionTimer = null;
+
+async function fetchAndDisplayPrediction() {
+    const ticker = assetSelect.value;
+    const interval = intervalSelect.value;
+
+    try {
+        const response = await fetch(`/api/predict/${ticker}/${interval}`);
+        const result = await response.json();
+
+        if (result.error || result.signal === 'HOLD') return;
+
+        const allData = candleSeries.data();
+        if (!allData || allData.length === 0) return;
+        const lastCandle = allData[allData.length - 1];
+
+        const marker = {
+            time: lastCandle.time,
+            position: result.signal === 'BUY' ? 'belowBar' : 'aboveBar',
+            color: result.signal === 'BUY' ? '#26a69a' : '#ef5350',
+            shape: result.signal === 'BUY' ? 'arrowUp' : 'arrowDown',
+            text: `${result.signal} ${(result.confidence * 100).toFixed(0)}%`
+        };
+
+        // Avoid duplicate markers at same timestamp
+        signalMarkers = signalMarkers.filter(m => m.time !== lastCandle.time);
+        signalMarkers.push(marker);
+        signalMarkers.sort((a, b) => a.time - b.time);
+        candleSeries.setMarkers(signalMarkers);
+
+        // Update prediction panel
+        updatePredictionPanel(result);
+
+    } catch (error) {
+        console.error("Prediction error:", error);
+    }
+}
+
+function updatePredictionPanel(result) {
+    let panel = document.getElementById('prediction-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'prediction-panel';
+        panel.style.cssText = 'width: 80%; margin: 20px auto; text-align: left; background: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333;';
+        document.getElementById('tvchart').insertAdjacentElement('afterend', panel);
+    }
+
+    const signalColor = result.signal === 'BUY' ? '#26a69a' : result.signal === 'SELL' ? '#ef5350' : '#888';
+    panel.innerHTML = `
+        <h2 style="margin-top:0">Latest Prediction</h2>
+        <div style="font-size: 1.4em; font-weight: bold; color: ${signalColor}">${result.signal}</div>
+        <div style="margin-top: 10px; color: #aaa;">
+            Buy: ${(result.probabilities.buy * 100).toFixed(1)}% &nbsp;|&nbsp;
+            Hold: ${(result.probabilities.hold * 100).toFixed(1)}% &nbsp;|&nbsp;
+            Sell: ${(result.probabilities.sell * 100).toFixed(1)}%
+        </div>
+        <div style="margin-top: 8px; color: #aaa; font-size: 0.9em;">
+            Sentiment: ${result.sentiment.toFixed(3)} &nbsp;|&nbsp;
+            Anomaly: ${result.anomaly.toFixed(4)}
+        </div>
+    `;
+}
+
+function startPredictions() {
+    if (predictionTimer) {
+        // Toggle off
+        clearInterval(predictionTimer);
+        predictionTimer = null;
+        predictBtn.textContent = 'Start Prediction';
+        predictBtn.style.borderColor = '#555';
+        return;
+    }
+
+    // Toggle on
+    predictBtn.textContent = 'Stop Prediction';
+    predictBtn.style.borderColor = '#26a69a';
+    fetchAndDisplayPrediction(); // run immediately
+    predictionTimer = setInterval(fetchAndDisplayPrediction, 30000); // then every 30s
+}
+
 // Dropdown listeners
 assetSelect.addEventListener('change', handleManualUpdate);
 intervalSelect.addEventListener('change', handleManualUpdate);
 newsBtn.addEventListener('click', fetchAndRenderNews)
+
+assetSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
+intervalSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
+
+predictBtn.addEventListener('click', startPredictions)
 
 // Initial load
 handleManualUpdate();
