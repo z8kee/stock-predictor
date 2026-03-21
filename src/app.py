@@ -38,20 +38,14 @@ def get_history(ticker, interval):
             print(f"First load for {ticker}, Fetching full {period} history.")
             combined_df = yf.download(tickers=ticker, period=period, interval=interval, progress=False)
 
-        # 1. Drop any missing data points (NaNs)
         combined_df.dropna(inplace=True)
-        # 2. Remove any duplicate timestamps (Yahoo Finance sometimes sends two of the same minute)
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
-        # 3. STRICTLY sort chronologically (Lightweight Charts will crash if not ascending)
         combined_df.sort_index(inplace=True)
         
-        # Save the perfectly clean data back to cache
         stock_cache[cache_key] = combined_df
 
-        # Format data for TradingView
         chart_data = []
         for index, row in combined_df.iterrows():
-            # Quick safety check to skip rows with missing data (NaN)
             if pd.isna(row['Close'].iloc[0] if isinstance(row['Close'], pd.Series) else row['Close']):
                 continue
 
@@ -93,12 +87,8 @@ def get_news_sentiment(ticker):
             if not title:
                 continue
                 
-            # 3. Use YOUR custom method to get the final_score
-            # Note: You might need to pass the title as a list [title] depending 
-            # on how your tokenizer handles single strings vs batches
             score = analyser.get_sentiment_score([title]) 
             
-            # Format based on your score calculation (Pos - Neg)
             if score > 0.05:
                 sentiment = "good"
             elif score < -0.05:
@@ -110,7 +100,6 @@ def get_news_sentiment(ticker):
                 "title": title,
                 "link": link,
                 "sentiment": sentiment,
-                # Convert numpy float to standard Python float for JSON serialization
                 "score": float(score) 
             })
             
@@ -119,7 +108,6 @@ def get_news_sentiment(ticker):
         print(f"Error fetching or analyzing news: {e}")
         return jsonify({"error": "Could not fetch or analyze news"}), 500
 
-# Cache models so they don't reload on every request
 model_cache = {}
 
 def get_models(timeframe):
@@ -143,7 +131,6 @@ def predict(ticker, timeframe):
                         'Volatility', 'RSI', 'ROC', 'BB_Position',
                         'Stoch_K', 'Stoch_D']
 
-        # 1. Fetch raw data and compute indicators
         period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
         raw_df = yf.download(ticker, interval=timeframe, period=period_map.get(timeframe, '60d'), progress=False)
 
@@ -166,12 +153,10 @@ def predict(ticker, timeframe):
         window_scaled = models['f_scaler'].transform(window)
         x_input = window_scaled.reshape(1, w_size, 21)
 
-        # 3. Anomaly score
         recon = models['autoencoder'].predict(x_input, verbose=0)
         anomaly_raw = np.mean(np.abs(x_input - recon))
         anomaly_scaled = models['anom_scaler'].transform([[anomaly_raw]])  # (1, 1)
 
-        # 4. Sentiment score from latest news
         headlines = []
         for item in yf.Ticker(ticker).news[:5]:
             content = item.get('content', item)
@@ -204,4 +189,4 @@ def predict(ticker, timeframe):
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000, use_reloader=False)
+    app.run(debug=True, port=8888, use_reloader=False)
