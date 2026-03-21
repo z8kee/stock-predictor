@@ -7,3 +7,4 @@ tf-keras
 transformers
 scikit-learn
 matplotlib
+gunicorn
