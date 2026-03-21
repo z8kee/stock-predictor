@@ -8,6 +8,9 @@ from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import f1_score
 from matplotlib import pyplot as plt
 
+INTERVAL_MAP = {'1m':  1, '5m':  2, '15m': 3, '1h':  4, '1d':  5}
+WINDOW_SIZES = {'1m':  30, '5m':  48, '15m': 32, '1h':  24, '1d':  20}
+
 class SentimentAnalyser:
     def __init__(self):
         print("Loading finbert")
@@ -33,26 +36,20 @@ class SentimentAnalyser:
 
     def apply_sentiment_scaling(self, prob_buy, prob_sell, sentiment_score, max_weight=8.8):
 
-      # Start with default 1.0 multipliers (No change)
       buy_multiplier = 1.0
       sell_multiplier = 1.0
 
       if sentiment_score > 0:
-          # Bullish News: Boost Buy, Penalize Sell
           buy_multiplier = 1.0 + (sentiment_score * max_weight)
           sell_multiplier = 1.0 - (sentiment_score * max_weight)
 
       elif sentiment_score < 0:
-          # Bearish News: Boost Sell, Penalize Buy
-          # We use abs() to convert the negative score into a positive multiplier addition
           sell_multiplier = 1.0 + (abs(sentiment_score) * max_weight)
           buy_multiplier = 1.0 - (abs(sentiment_score) * max_weight)
 
-      # Apply the multipliers
       adjusted_buy = prob_buy * buy_multiplier
       adjusted_sell = prob_sell * sell_multiplier
 
-      # Safety Cap: Ensure probabilities mathematically cannot exceed 0.99
       adjusted_buy = min(0.99, adjusted_buy)
       adjusted_sell = min(0.99, adjusted_sell)
 
@@ -74,7 +71,7 @@ def prepare_data(interval_folder, timeframe_name, window_size=None, forecast_hor
         'is_new_york', 'is_london', 'is_asia',
         'Volatility', 'RSI', 'ROC', 'BB_Position',
         'Stoch_K', 'Stoch_D'
-    ]  # 21 features (was 22)
+    ]  # 21 features
 
     f_scaler = RobustScaler()
     t_scaler = RobustScaler()
@@ -215,26 +212,6 @@ def build_autoencoder(n_timesteps, n_features):
     model = Model(inputs=input_layer, outputs=output_layer)
     model.compile(optimizer='adam', loss='mae')
     return model
-
-def prepare_anomaly_data(df, window_size=30):
-    feat_cols = ['Open', 'High', 'Low', 'Close', 'VIX', 'RSI', 'EMA_Dist', 'Volatility']
-    data = df[feat_cols].values
-    df = df.replace([np.inf, -np.inf], np.nan).dropna()
-    if df.isnull().values.any():
-        print("Warning: NaNs still present in the data!")
-    sequences = []
-    for i in range(len(data) - window_size):
-        sequences.append(data[i: i + window_size])
-
-    return np.array(sequences)
-
-def black_swan(model, current_window, threshold=0.15):
-    prediction = model.predict(current_window, verbose=0)
-
-    loss = np.mean(np.abs(current_window-prediction))
-    is_anomaly = loss > threshold
-
-    return is_anomaly, loss
 
 def train():
     base_path  = '/content/sample_data/data'
@@ -537,9 +514,6 @@ def predict_and_visualise(timeframe):
 
 if __name__ == "__main__":
     print("GPU Available:", tf.config.list_physical_devices('GPU'))
-
-    INTERVAL_MAP = {'1m':  1, '5m':  2, '15m': 3, '1h':  4, '1d':  5}
-    WINDOW_SIZES = {'1m':  30, '5m':  48, '15m': 32, '1h':  24, '1d':  20}
 
     train()
     check()

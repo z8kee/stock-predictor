@@ -4,7 +4,7 @@ const loadingBar = document.getElementById('loading-bar');
 const newsBtn = document.querySelector('.News-btn');
 const predictBtn = document.querySelector('.Predict-btn');
 
-// --- Chart Initialisation ---
+// initalise the chart
 const chart = LightweightCharts.createChart(document.getElementById('tvchart'), {
     layout: {
         background: { color: '#121212' },
@@ -26,12 +26,11 @@ const candleSeries = chart.addCandlestickSeries({
     wickDownColor: '#ef5350',
 });
 
-// Resize chart when window resizes
+// when window gets resized, we resize chart
 window.addEventListener('resize', () => {
     chart.applyOptions({ width: document.getElementById('tvchart').clientWidth });
 });
 
-// Use a uniquely named variable - never shadow the built-in setTimeout!
 let updateTimer = null;
 
 async function fetchAndRenderChart(ticker, interval, isManualUpdate = true) {
@@ -43,30 +42,25 @@ async function fetchAndRenderChart(ticker, interval, isManualUpdate = true) {
         const response = await fetch(`/api/history/${ticker}/${interval}`);
         let data = await response.json();
 
-        // 1. Force strict chronological order and remove duplicates
+        // avoids duplicates and allows order
         data = data.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
         data.sort((a, b) => a.time - b.time);
 
         if (isManualUpdate) {
-            // INITIAL LOAD: Replace the whole chart and fit to screen
             candleSeries.setData(data);
             chart.timeScale().fitContent();
             
-            // Re-apply markers if they exist
             if (signalMarkers.length > 0) {
                 const validTimes = new Set(data.map(d => d.time));
                 signalMarkers = signalMarkers.filter(m => validTimes.has(m.time)); 
                 candleSeries.setMarkers(signalMarkers);
             }
         } else {
-            // LIVE UPDATE: Just inject the latest data points smoothly
-            // We slice the last 5 candles just in case of slight network lag
+            // we slice the last 5 candles just in case of slight network lag
             const latestCandles = data.slice(-5);
             for (const candle of latestCandles) {
                 candleSeries.update(candle);
             }
-            // Notice we do NOT call setMarkers here! 
-            // update() leaves your prediction arrows perfectly intact where they belong.
         }
 
     } catch (error) {
@@ -79,7 +73,7 @@ async function fetchAndRenderChart(ticker, interval, isManualUpdate = true) {
 }
 
 async function handleManualUpdate() {
-    // Stop any pending background update
+    // stop any pending background update
     if (updateTimer) {
         clearTimeout(updateTimer);
         updateTimer = null;
@@ -88,7 +82,7 @@ async function handleManualUpdate() {
     const currentTicker = assetSelect.value;
     const currentInterval = intervalSelect.value;
 
-    // Wait for full load before queuing the next update
+    // wait for full load before queuing the next update
     await fetchAndRenderChart(currentTicker, currentInterval, true);
 
     queueNextUpdate();
@@ -97,14 +91,14 @@ async function handleManualUpdate() {
 function showLoadingBar() {
     loadingBar.style.display = 'block';
     loadingBar.style.width = '0%';
-    setTimeout(() => loadingBar.style.width = '70%', 50); // jump to 70% quickly
+    setTimeout(() => loadingBar.style.width = '70%', 50);
 }
 
 function hideLoadingBar() {
-    loadingBar.style.width = '100%'; // finish to 100%
+    loadingBar.style.width = '100%'; 
     setTimeout(() => {
         loadingBar.style.display = 'none';
-        loadingBar.style.width = '0%'; // reset for next time
+        loadingBar.style.width = '0%'; 
     }, 300);
 }
 
@@ -184,16 +178,14 @@ async function fetchAndDisplayPrediction() {
             return;
         }
 
-        // 1. ALWAYS update the prediction panel so you know the model actually ran
         updatePredictionPanel(result);
 
-        // 2. ONLY draw a chart marker if the signal is a BUY or SELL
+        // only draws a chart marker if the signal is a BUY or SELL
         if (result.signal !== 'HOLD') {
             const allData = candleSeries.data();
             if (!allData || allData.length === 0) return;
             const lastCandle = allData[allData.length - 1];
 
-            // Safely grab the correct probability based on the signal
             const confidence = result.signal === 'BUY' ? result.probabilities.buy : result.probabilities.sell;
 
             const marker = {
@@ -204,7 +196,6 @@ async function fetchAndDisplayPrediction() {
                 text: `${result.signal} ${(confidence * 100).toFixed(0)}%`
             };
 
-            // Avoid duplicate markers at the same timestamp
             signalMarkers = signalMarkers.filter(m => m.time !== lastCandle.time);
             signalMarkers.push(marker);
             signalMarkers.sort((a, b) => a.time - b.time);
@@ -218,9 +209,19 @@ async function fetchAndDisplayPrediction() {
 
 function updatePredictionPanel(result) {
     const panel = document.getElementById('prediction-panel');
-    panel.style.display = 'block'; // Unhide the panel
+    const interval = intervalSelect.value;
+    const black_swan_timeframes = {'1m': 1.0546, '5m': 2.5955, '15m': 2.7866, '1h': 2.4900, '1d': 0.8567}
+    panel.style.display = 'block'; // unhide the panel
 
     const signalColor = result.signal === 'BUY' ? '#26a69a' : result.signal === 'SELL' ? '#ef5350' : '#888';
+    let anomalyWarning = '';
+    if (result.anomaly > black_swan_timeframes[interval]) {
+        anomalyWarning = `
+            <div style="margin-top: 12px; padding: 8px; background-color: rgba(255, 193, 7, 0.2); border: 1px solid #ffc107; border-radius: 4px; color: #ffc107; font-weight: bold; font-size: 0.9em; text-align: center;">
+                ⚠️ BLACK SWAN WARNING: High market anomaly detected. Prediction confidence is compromised.
+            </div>
+        `;
+    }
     
     panel.innerHTML = `
         <h2 style="margin-top:0">Latest Prediction</h2>
@@ -234,6 +235,7 @@ function updatePredictionPanel(result) {
             Sentiment: ${result.sentiment.toFixed(3)} &nbsp;|&nbsp;
             Anomaly: ${result.anomaly.toFixed(4)}
         </div>
+        ${anomalyWarning}
     `;
 }
 
@@ -254,7 +256,7 @@ function startPredictions() {
     predictionTimer = setInterval(fetchAndDisplayPrediction, 30000); // then every 30s
 }
 
-// Dropdown listeners
+// dropdown listeners
 assetSelect.addEventListener('change', handleManualUpdate);
 intervalSelect.addEventListener('change', handleManualUpdate);
 newsBtn.addEventListener('click', fetchAndRenderNews)
@@ -264,5 +266,7 @@ intervalSelect.addEventListener('change', () => { signalMarkers = []; candleSeri
 
 predictBtn.addEventListener('click', startPredictions)
 
-// Initial load
+// run it
 handleManualUpdate();
+
+// made by zeeeeke gee pee tee
