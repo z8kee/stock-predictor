@@ -269,8 +269,4 @@ predictBtn.addEventListener('click', startPredictions)
 // run it
 handleManualUpdate();
 
-<<<<<<< HEAD
 // made by zeeeeke gee pee tee
-=======
-// made by zeeeeke gee pee tee
->>>>>>> 3324a1b12878cf7ba7193ef59868894eb11fccd9
