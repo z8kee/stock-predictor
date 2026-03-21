@@ -188,7 +188,7 @@ if __name__ == "__main__":
     vix_series = vix_df['Close'].rename("VIX")
 
     #create a new dir for every timeframe
-    base_dir = r"C:\Users\supah\OneDrive\Documents\School\Uni Projects\StockPrediction\data"
+    base_dir = r"data"
     os.makedirs(base_dir, exist_ok=True)
 
     for interval, period in intervals_config.items():
@@ -225,7 +225,7 @@ if __name__ == "__main__":
                 clean_df.to_csv(save_path)
                 print(f"  Saved {t} -> {len(clean_df)} rows")
                     
-                df = pd.read_csv(f'C:/Users/supah/OneDrive/Documents/School/Uni Projects/StockPrediction/data/1h/{safe_ticker}.csv')
+                df = pd.read_csv(f'data/1h/{safe_ticker}.csv')
                 print(df['Signal'].value_counts(normalize=True) * 100)
 
             except Exception as e:

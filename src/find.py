@@ -40,7 +40,7 @@ def find_thresholds(timeframe):
 
 if __name__ == "__main__":
     for t in timeframess:
-        data_folder = rf'C:\Users\supah\OneDrive\Documents\School\Uni Projects\StockPrediction\data\{t}' 
+        data_folder = rf'data\{t}' 
         model_path = rf'models/autoencoder_{t}.keras'
         print(f"timeframe {t}")
         find_thresholds(t)

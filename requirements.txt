@@ -2,9 +2,9 @@ Flask
 yfinance
 pandas
 numpy
-tensorflow
-tf-keras
-transformers
+tensorflow==2.21.0
+tf-keras==2.21.0
+transformers==4.40.0
 scikit-learn
 matplotlib
 gunicorn
