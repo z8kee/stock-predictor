@@ -2,3 +2,4 @@ notebooks
 .vscode
 data
 src\__pycache__
+.venv

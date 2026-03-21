@@ -1,12 +1,13 @@
 # app.py
+
 from flask import Flask, render_template, jsonify
-import yfinance as yf, pandas as pd, numpy as np, tensorflow as tf, pickle, tf_keras
+import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
 app = Flask(__name__)
 stock_cache = {}
 
-analyser = SentimentAnalyser(0.2)
+analyser = SentimentAnalyser()
 print("analyser ready twin")
 
 @app.route('/')
@@ -123,10 +124,10 @@ model_cache = {}
 
 def get_models(timeframe):
     if timeframe not in model_cache:
-        custom_objects = {'mse': tf_keras.losses.MeanAbsoluteError, 'mae': tf_keras.losses.MeanAbsoluteError}
+        custom_objects = {'mse': tf.keras.losses.MeanAbsoluteError, 'mae': tf.keras.losses.MeanAbsoluteError}
         model_cache[timeframe] = {
-            'predictor': tf_keras.models.load_model(f'models/predictor_{timeframe}.h5', custom_objects=custom_objects),
-            'autoencoder': tf_keras.models.load_model(f'models/autoencoder_{timeframe}.h5', custom_objects=custom_objects),
+            'predictor': tf.keras.models.load_model(f'models/predictor_{timeframe}.keras', custom_objects=custom_objects),
+            'autoencoder': tf.keras.models.load_model(f'models/autoencoder_{timeframe}.keras', custom_objects=custom_objects),
             'f_scaler': pickle.load(open(f'models/scaler_features_{timeframe}.pkl', 'rb')),
             'anom_scaler': pickle.load(open(f'models/scaler_anom_{timeframe}.pkl', 'rb')),
         }
@@ -137,7 +138,7 @@ def predict(ticker, timeframe):
     try:
         feature_cols = ['Open', 'High', 'Low', 'Close',
                         'VIX', 'EMA_Dist', '50TD', '200TD',
-                        'EMA_Spread', 'Rolling_WVAP', 'VWAP_Dist', 'Hour_Sin',
+                        'EMA_Spread', 'VWAP_Dist', 'Hour_Sin',
                         'Hour_Cos', 'is_new_york', 'is_london', 'is_asia',
                         'Volatility', 'RSI', 'ROC', 'BB_Position',
                         'Stoch_K', 'Stoch_D']
@@ -157,11 +158,13 @@ def predict(ticker, timeframe):
         if len(df) < 60:
             return jsonify({"error": "Not enough data for prediction"}), 400
 
-        # 2. Build 60-step window
+        window_sizes = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
+        w_size = window_sizes.get(timeframe, 30)
+
         models = get_models(timeframe)
-        window = df[feature_cols].values[-60:]  #last 60 steps of data
+        window = df[feature_cols].values[-w_size:]  
         window_scaled = models['f_scaler'].transform(window)
-        x_input = window_scaled.reshape(1, 60, 22)
+        x_input = window_scaled.reshape(1, w_size, 21)
 
         # 3. Anomaly score
         recon = models['autoencoder'].predict(x_input, verbose=0)
@@ -201,4 +204,4 @@ def predict(ticker, timeframe):
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000, use_reloader=False)
