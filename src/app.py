@@ -204,7 +204,7 @@ def info():
 @app.route('/api/recommendation/<ticker>')
 def get_openai_recommendation(ticker):
     try:
-        api_key = "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"
+        api_key = ""
         base_url = "https://api.openai.com/v1/chat/completions"
 
         stock = yf.Ticker(ticker)
