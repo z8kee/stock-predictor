@@ -1,9 +1,9 @@
 const assetSelect = document.getElementById('Select-Stock');
 const intervalSelect = document.getElementById('Select-Timeframe');
 const loadingBar = document.getElementById('loading-bar');
-const newsBtn = document.querySelector('.News-btn');
 const predictBtn = document.querySelector('.Predict-btn');
-
+const newsBtn = document.querySelector('.News-btn');
+const recBtn = document.querySelector('.Recommend-btn')
 // initalise the chart
 const chart = LightweightCharts.createChart(document.getElementById('tvchart'), {
     layout: {
@@ -56,10 +56,10 @@ async function fetchAndRenderChart(ticker, interval, isManualUpdate = true) {
                 candleSeries.setMarkers(signalMarkers);
             }
         } else {
-            // we slice the last 5 candles just in case of slight network lag
-            const latestCandles = data.slice(-5);
-            for (const candle of latestCandles) {
-                candleSeries.update(candle);
+            // pass latest candle
+            if (data.length > 0) {
+                const latestCandle = data[data.length -1];
+                candleSeries.update(latestCandle);
             }
         }
 
@@ -102,15 +102,26 @@ function hideLoadingBar() {
     }, 300);
 }
 
+function getDelay() {
+    const update_delays = {
+        '1m': 15000,       // 30 seconds
+        '5m': 30000,      // 2.5 minutes
+        '15m': 60000,     // 5 minutes
+        '1h': 120000,      // 10 minutes
+        '1d': 300000      // 30 minutes
+    };
+    return update_delays[intervalSelect.value] || 15000;
+}
+
 function queueNextUpdate() {
     updateTimer = setTimeout(async () => {
         const currentTicker = assetSelect.value;
         const currentInterval = intervalSelect.value;
-
+    
         await fetchAndRenderChart(currentTicker, currentInterval, false);
 
         queueNextUpdate();
-    }, 1500);
+    }, getDelay());
 }
 
 async function fetchAndRenderNews() {
@@ -145,12 +156,7 @@ async function fetchAndRenderNews() {
  
 
         let newsPanel = document.getElementById('news-panel');
-        if (!newsPanel) {
-            newsPanel = document.createElement('div');
-            newsPanel.id = 'news-panel';
-            newsPanel.style.cssText = 'width: 80%; margin: 20px auto; text-align: left; background: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333;';
-            document.getElementById('tvchart').insertAdjacentElement('afterend', newsPanel);
-        }
+        newsPanel.style.display = 'block'; // Ensure it's visible
         newsPanel.innerHTML = `<h2 style="margin-top:0">Latest News</h2>` + html;
  
     } catch (error) {
@@ -173,15 +179,17 @@ async function fetchAndDisplayPrediction() {
         const response = await fetch(`/api/predict/${ticker}/${interval}`);
         const result = await response.json();
 
-        if (result.error) {
-            console.error("Server returned an error:", result.error);
-            return;
-        }
+        if (result.error) return;
 
         updatePredictionPanel(result);
 
-        // only draws a chart marker if the signal is a BUY or SELL
+        // ONLY draw a chart marker and PLAY SOUND if it's a BUY or SELL
         if (result.signal !== 'HOLD') {
+            
+            // --- NEW: Play Alert Sound ---
+            const alertSound = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+            alertSound.play().catch(e => console.log("Sound blocked by browser:", e));
+
             const allData = candleSeries.data();
             if (!allData || allData.length === 0) return;
             const lastCandle = allData[allData.length - 1];
@@ -201,10 +209,34 @@ async function fetchAndDisplayPrediction() {
             signalMarkers.sort((a, b) => a.time - b.time);
             candleSeries.setMarkers(signalMarkers);
         }
-
     } catch (error) {
         console.error("Prediction error:", error);
     }
+}
+
+// Replaces your old startPredictions to use dynamic setTimeout
+async function predictionLoop() {
+    await fetchAndDisplayPrediction();
+    if (predictionTimer !== null) {
+        predictionTimer = setTimeout(predictionLoop, getDelay());
+    }
+}
+
+function startPredictions() {
+    if (predictionTimer) {
+        // Toggle off
+        clearTimeout(predictionTimer);
+        predictionTimer = null;
+        predictBtn.textContent = 'Start Prediction';
+        predictBtn.style.borderColor = '#555';
+        return;
+    }
+
+    // Toggle on
+    predictBtn.textContent = 'Stop Prediction';
+    predictBtn.style.borderColor = '#26a69a';
+    predictionTimer = "starting"; // Placeholder to allow loop to run
+    predictionLoop(); 
 }
 
 function updatePredictionPanel(result) {
@@ -218,7 +250,7 @@ function updatePredictionPanel(result) {
     if (result.anomaly > black_swan_timeframes[interval]) {
         anomalyWarning = `
             <div style="margin-top: 12px; padding: 8px; background-color: rgba(255, 193, 7, 0.2); border: 1px solid #ffc107; border-radius: 4px; color: #ffc107; font-weight: bold; font-size: 0.9em; text-align: center;">
-                ⚠️ BLACK SWAN WARNING: High market anomaly detected. Prediction confidence is compromised.
+                High market anomaly detected. Prediction confidence is compromised.
             </div>
         `;
     }
@@ -238,35 +270,53 @@ function updatePredictionPanel(result) {
         ${anomalyWarning}
     `;
 }
+async function getAiRecommendations() {
+    const ticker = assetSelect.value;
+    const panel = document.getElementById('recommendation-panel');
+    
+    recBtn.textContent = 'Agent is Analyzing...';
+    recBtn.disabled = true;
+    
+    try {
+        const response = await fetch(`/api/recommendation/${ticker}`);
+        const data = await response.json();
+        
+        if (data.error) {
+            alert('Agent Error: ' + data.error);
+            return;
+        }
 
-function startPredictions() {
-    if (predictionTimer) {
-        // Toggle off
-        clearInterval(predictionTimer);
-        predictionTimer = null;
-        predictBtn.textContent = 'Start Prediction';
-        predictBtn.style.borderColor = '#555';
-        return;
+        // Color code the recommendation text
+        let recColor = '#888';
+        if (data.recommendation.includes('Buy')) recColor = '#26a69a';
+        if (data.recommendation.includes('Sell')) recColor = '#ef5350';
+
+        panel.style.display = 'block';
+        panel.innerHTML = `
+            <h3 style="margin-top:0; color: #ff9800;">LLM Market Agent</h3>
+            <div style="font-size: 1.3em; font-weight: bold; color: ${recColor}; margin-bottom: 10px;">
+                ${data.recommendation}
+            </div>
+            <div style="color: #aaa; line-height: 1.5; font-size: 0.95em;">
+                ${data.description}
+            </div>
+        `;
+    } catch (error) {
+        console.error("Error fetching recommendation:", error);
+    } finally {
+        recBtn.textContent = 'Get AI Recommendation';
+        recBtn.disabled = false;
     }
-
-    // Toggle on
-    predictBtn.textContent = 'Stop Prediction';
-    predictBtn.style.borderColor = '#26a69a';
-    fetchAndDisplayPrediction(); // run immediately
-    predictionTimer = setInterval(fetchAndDisplayPrediction, 30000); // then every 30s
 }
 
 // dropdown listeners
 assetSelect.addEventListener('change', handleManualUpdate);
 intervalSelect.addEventListener('change', handleManualUpdate);
-newsBtn.addEventListener('click', fetchAndRenderNews)
+predictBtn.addEventListener('click', startPredictions);
+newsBtn.addEventListener('click', fetchAndRenderNews);
+recBtn.addEventListener('click', getAiRecommendations);
 
 assetSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
 intervalSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
 
-predictBtn.addEventListener('click', startPredictions)
-
-// run it
 handleManualUpdate();
-
-// made by zeeeeke gee pee tee

@@ -34,26 +34,21 @@ class SentimentAnalyser:
 
         return final_score
 
-    def apply_sentiment_scaling(self, prob_buy, prob_sell, sentiment_score, max_weight=8.8):
+    def apply_sentiment_scaling(self, prob_buy, prob_hold, prob_sell, sentiment_score, max_shift):        
+        shift = sentiment_score * max_shift
 
-      buy_multiplier = 1.0
-      sell_multiplier = 1.0
+        adjusted_buy = prob_buy + shift
+        adjusted_sell = prob_sell - shift
 
-      if sentiment_score > 0:
-          buy_multiplier = 1.0 + (sentiment_score * max_weight)
-          sell_multiplier = 1.0 - (sentiment_score * max_weight)
+        adjusted_buy = np.clip(adjusted_buy, 0.00, 0.99)
+        adjusted_sell = np.clip(adjusted_sell, 0.00, 0.99)
 
-      elif sentiment_score < 0:
-          sell_multiplier = 1.0 + (abs(sentiment_score) * max_weight)
-          buy_multiplier = 1.0 - (abs(sentiment_score) * max_weight)
+        total = adjusted_buy + adjusted_sell + prob_hold
+        final_buy = adjusted_buy / total
+        final_sell = adjusted_sell / total
+        final_hold = prob_hold / total
 
-      adjusted_buy = prob_buy * buy_multiplier
-      adjusted_sell = prob_sell * sell_multiplier
-
-      adjusted_buy = min(0.99, adjusted_buy)
-      adjusted_sell = min(0.99, adjusted_sell)
-
-      return adjusted_buy, adjusted_sell
+        return final_buy, final_hold, final_sell
 
 def prepare_data(interval_folder, timeframe_name, window_size=None, forecast_horizon=1, train_frac=0.60, val_frac=0.20):
     if window_size is None:

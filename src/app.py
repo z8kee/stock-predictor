@@ -1,7 +1,8 @@
 # app.py
 
 from flask import Flask, render_template, jsonify
-import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf
+import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf, time, requests
+from functools import lru_cache
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
 app = Flask(__name__)
@@ -66,7 +67,7 @@ def get_history(ticker, interval):
 
     except Exception as e:
         print(f"Error fetching data: {e}")
-        return jsonify([]) # Return empty array if it fails so the frontend doesn't crash
+        return jsonify([])
     
 @app.route('/api/news/<ticker>')
 def get_news_sentiment(ticker):
@@ -77,9 +78,8 @@ def get_news_sentiment(ticker):
         
         results = []
         
-        # Grab the top 5 most recent articles
         for item in news_items[:5]:
-            content = item.get('content', item)  # new yfinance API nests data under 'content'
+            content = item.get('content', item)
             title = content.get('title', '')
             click_through = content.get('clickThroughUrl') or content.get('canonicalUrl') or {}
             link = click_through.get('url', '')
@@ -121,6 +121,14 @@ def get_models(timeframe):
         }
     return model_cache[timeframe]
 
+@lru_cache(maxsize=1)
+def fetch_cached_vix(ttl_hash):
+    print("--- Fetching fresh VIX data from Yahoo ---")
+    vix_df = yf.download("^VIX", period="5d", progress=False)
+    if isinstance(vix_df.columns, pd.MultiIndex):
+        vix_df.columns = vix_df.columns.get_level_values(0)
+    return vix_df['Close'].rename("VIX")
+
 @app.route('/api/predict/<ticker>/<timeframe>')
 def predict(ticker, timeframe):
     try:
@@ -134,10 +142,8 @@ def predict(ticker, timeframe):
         period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
         raw_df = yf.download(ticker, interval=timeframe, period=period_map.get(timeframe, '60d'), progress=False)
 
-        vix_df = yf.download("^VIX", period="5d", progress=False)
-        if isinstance(vix_df.columns, pd.MultiIndex):
-            vix_df.columns = vix_df.columns.get_level_values(0)
-        vix_series = vix_df['Close'].rename("VIX")
+        curr_hash = round(time.time() / 300)
+        vix_series = fetch_cached_vix(curr_hash)
 
         df = compute_indicators_and_pct(ticker, raw_df, vix_series)
         df.dropna(inplace=True)
@@ -168,16 +174,15 @@ def predict(ticker, timeframe):
 
         # 5. Predict
         probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
-        predicted_class = int(np.argmax(probs))
         labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
+        adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], sentiment_score, 0.30)
+        predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))
 
-        adj_buy, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[0], sentiment_score)
-        
         return jsonify({
             'signal': labels[predicted_class],
             'probabilities': {
                 'sell': float(adj_sell),
-                'hold': float(probs[1]),
+                'hold': float(adj_hold),
                 'buy':  float(adj_buy)
             },
             'sentiment': sentiment_score,
@@ -187,6 +192,61 @@ def predict(ticker, timeframe):
     except Exception as e:
         print(f"Prediction error: {e}")
         return jsonify({"error": str(e)}), 500
+@app.route('/info')
+def info():
+    return render_template('info.html')
 
-# if __name__ == '__main__':
-#     app.run(debug=True, port=5000, use_reloader=False)
+@app.route('/api/recommendation/<ticker>')
+def get_openai_recommendation(ticker):
+    try:
+        api_key = "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"
+        base_url = "https://api.openai.com/v1/chat/completions"
+
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="1d")
+        current_price = hist['Close'].iloc[-1] if not hist.empty else "Unknown"
+
+        headlines = []
+        for item in stock.news[:3]:
+            content = item.get('content', item)
+            if content.get('title'):
+                headlines.append(content.get('title'))
+        news_context = " | ".join(headlines)
+
+        SYSTEM_PROMPT = f"""
+        You are an expert quantitative financial analyst. Analyze the current market context for {ticker}.
+        - The current live price is: {current_price}
+        - The latest news headlines today are: {news_context}
+        
+        Provide exactly two things:
+        1. "recommendation": Strictly choose exactly one of these strings: [Strong Sell, Sell, Hold, Buy, Strong Buy].
+        2. "description": A 2-3 sentence summary of today's market structure for this asset based on the price and news provided, justifying your recommendation.
+        
+        Respond ONLY in valid JSON format.
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        messages = [
+            {"role": "system", "content": "You are a financial AI agent that outputs strictly in JSON."},
+            {"role": "user", "content": SYSTEM_PROMPT}
+        ]
+
+        payload = {"model": "gpt-4o-mini", "messages": messages}
+        resp = requests.post(base_url, json=payload, headers=headers)
+        
+        if resp.status_code != 200:
+            raise RuntimeError(f"Chat completion failed: {resp.status_code} {resp.text}")
+        
+        data = resp.json()
+        
+        return data.get("choices", [{}])[0].get("message", {}).get("content")
+
+    except Exception as e:
+        print(f"OpenAI Agent Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+if __name__ == '__main__':
+    app.run(debug=True, port=5000, use_reloader=False)

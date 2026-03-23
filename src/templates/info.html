@@ -4,40 +4,12 @@
         <title>Info</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { 
-                font-family: Arial, sans-serif; 
-                background-color: #121212; 
-                color: white; 
-                text-align: center; 
-                margin: 0;
-                padding-top: 60px;
-            }
-
-            nav {
-                position: absolute; 
-                top: 20px;          
-                right: 30px;        
-            }
-
-            nav a {
-                color: white;
-                text-decoration: none; 
-                margin-left: 20px;     
-                font-size: 16px;
-                transition: color 0.2s;
-            }
-
-            nav a:hover {
-                color: #9c14c5; 
-            }
-        </style>
+        <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     </head>
     
     <body>
         <nav>
-            <a href="index.html">Stock Predictor</a>
-            <a href="info.html">Info</a>
+            <a href="{{ url_for('home') }}">Stock Predictor</a>
         </nav>
 
         <h1>Information</h1>
@@ -54,6 +26,14 @@ keep it hidden will ya? All of this was made by z8kee. Or Ezekiel. Whatever you 
         <p>If you see a warning called BLACK SWAN Event, it basically means something is happening beyond the market which is causing the stock to be highly volatile, <br>
         so don't trust predictions until its gone.</p>
         <p></p>
-        <p>Would you believe me if I told you I built this in my 1st year of University? </p>
+        <p>Would you believe me if I told you I built this in my 1st year of University? I wanna make money!! Remember what Warren Buffet said? If you don't find a way <br>
+        to make money while you sleep... </p>
+        <p></p>
+        <p>YOU WILL WORK UNTIL YOU DIE.</p>
+        <p> I plan to make this automated if this truly works</p>
     </body>
+    <footer>
+        <img src="{{ url_for('static', filename='z8keelogo.png') }}" alt="z8kee logo" class="footer-logo">
+        <p>&copy; z8kee. All rights reserved.</p>
+    </footer>
 </html>
