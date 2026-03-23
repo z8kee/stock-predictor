@@ -270,6 +270,7 @@ function updatePredictionPanel(result) {
         ${anomalyWarning}
     `;
 }
+
 async function getAiRecommendations() {
     const ticker = assetSelect.value;
     const panel = document.getElementById('recommendation-panel');
@@ -293,7 +294,7 @@ async function getAiRecommendations() {
 
         panel.style.display = 'block';
         panel.innerHTML = `
-            <h3 style="margin-top:0; color: #ff9800;">LLM Market Agent</h3>
+            <h3 style="margin-top:0; color: #ffffff;">Overall Decision</h3>
             <div style="font-size: 1.3em; font-weight: bold; color: ${recColor}; margin-bottom: 10px;">
                 ${data.recommendation}
             </div>

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    </head>
+    <body>
+        <div class="center-container">
+            <a href="{{ url_for('home') }}" class="center-btn">Go To Stock Predictor Chart</a>
+        </div>
+    </body>
+    <footer>
+        <img src="{{ url_for('static', filename='z8keelogo.png') }}" alt="z8kee logo" class="footer-logo">
+        <p>&copy; z8kee. All rights reserved.</p>
+    </footer>
+</html>

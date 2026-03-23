@@ -1,10 +1,9 @@
-# app.py
-
 from flask import Flask, render_template, jsonify
 import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf, time, requests
 from functools import lru_cache
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
+
 app = Flask(__name__)
 stock_cache = {}
 
@@ -12,6 +11,10 @@ analyser = SentimentAnalyser()
 print("analyser ready twin")
 
 @app.route('/')
+def start():
+    return render_template('start.html')
+
+@app.route('/stock')
 def home():
     return render_template('index.html')
 
@@ -174,8 +177,10 @@ def predict(ticker, timeframe):
 
         # 5. Predict
         probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
+        black_swan_timeframes = {'1m': 1.0546, '5m': 2.5955, '15m': 2.7866, '1h': 2.4900, '1d': 0.8567}
         labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
-        adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], sentiment_score, 0.30)
+        curr_shift = 3.5 if float(anomaly_raw) < black_swan_timeframes.get(timeframe, 2.5) else 1.5
+        adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], sentiment_score, curr_shift)
         predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))
 
         return jsonify({
@@ -199,7 +204,7 @@ def info():
 @app.route('/api/recommendation/<ticker>')
 def get_openai_recommendation(ticker):
     try:
-        api_key = ""
+        api_key = "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"
         base_url = "https://api.openai.com/v1/chat/completions"
 
         stock = yf.Ticker(ticker)
