@@ -1,8 +1,11 @@
 from flask import Flask, render_template, jsonify
-import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf, time, requests
+import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf, time, requests, os
 from functools import lru_cache
+from dotenv import load_dotenv
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
+
+load_dotenv()
 from db import TradeHistoryDB
 
 app = Flask(__name__)
@@ -250,7 +253,7 @@ def info():
 @app.route('/api/recommendation/<ticker>')
 def get_openai_recommendation(ticker):
     try:
-        api_key = ""
+        api_key = os.getenv('OPENAI_API_KEY', '')
         base_url = "https://api.openai.com/v1/chat/completions"
 
         stock = yf.Ticker(ticker)
