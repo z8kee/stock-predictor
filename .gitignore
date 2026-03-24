@@ -1,6 +1,6 @@
 notebooks
 .vscode
 data
-src\__pycache__
+__pycache__/
 .venv
 .env
