@@ -3,11 +3,13 @@ import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf, time
 from functools import lru_cache
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
+from db import TradeHistoryDB
 
 app = Flask(__name__)
 stock_cache = {}
 
 analyser = SentimentAnalyser()
+trade_db = TradeHistoryDB()
 print("analyser ready twin")
 
 @app.route('/')
@@ -148,7 +150,7 @@ def predict(ticker, timeframe):
         curr_hash = round(time.time() / 300)
         vix_series = fetch_cached_vix(curr_hash)
 
-        df = compute_indicators_and_pct(ticker, raw_df, vix_series)
+        df = compute_indicators_and_pct(ticker, raw_df, vix_series, timeframe)
         df.dropna(inplace=True)
 
         if len(df) < 60:
@@ -176,15 +178,58 @@ def predict(ticker, timeframe):
         sentiment_input = np.array([[sentiment_score]])
 
         # 5. Predict
+        current_price = float(raw_df['Close'].iloc[-1])
+        
+        high_low = raw_df['High'] - raw_df['Low']
+        high_close = np.abs(raw_df['High'] - raw_df['Close'].shift())
+        low_close = np.abs(raw_df['Low'] - raw_df['Close'].shift())
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        current_atr = float(tr.rolling(14).mean().iloc[-1])
+
+        open_trades = trade_db.get_trades_by_status('OPEN')
+        for trade in open_trades:
+            if trade['ticker'] == ticker:
+                status = 'OPEN'
+                if trade['signal'] == 'BUY':
+                    if current_price >= trade['target_price']: status = 'SUCCESSFUL'
+                    elif current_price <= trade['stop_loss']: status = 'FAILED'
+                elif trade['signal'] == 'SELL':
+                    if current_price <= trade['target_price']: status = 'SUCCESSFUL'
+                    elif current_price >= trade['stop_loss']: status = 'FAILED'
+                
+                if status != 'OPEN':
+                    trade_db.update_trade_status(trade['id'], status)
+
         probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
-        black_swan_timeframes = {'1m': 1.0546, '5m': 2.5955, '15m': 2.7866, '1h': 2.4900, '1d': 0.8567}
+        black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
         labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
-        curr_shift = 3.5 if float(anomaly_raw) < black_swan_timeframes.get(timeframe, 2.5) else 1.5
+        curr_shift = 2.0 if float(anomaly_raw) < black_swan_timeframes.get(timeframe, 2.5) else 0.95
         adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], sentiment_score, curr_shift)
         predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))
+        signal = labels[predicted_class]
+
+        if signal in [0, 2]:
+            currently_open = [t for t in trade_db.get_trades_by_status('OPEN') if t['ticker'] == ticker]
+
+            if not currently_open:
+                barrier_targets = {'1m': 6.5, '5m': 7.5, '15m': 7.0, '1h': 6.0, '1d': 4.5}
+                profit_factor = barrier_targets.get(timeframe, 6.5)
+                
+                profit_dist = profit_factor * current_atr
+                stop_dist = profit_dist / 1.5
+                
+                if signal == 2:
+                    target_price = current_price + profit_dist
+                    stop_loss = current_price - stop_dist
+                else: # SELL
+                    target_price = current_price - profit_dist
+                    stop_loss = current_price + stop_dist
+                
+                # Save to your SQLite database
+                trade_db.insert_trade(ticker, signal, current_price, target_price, stop_loss)
 
         return jsonify({
-            'signal': labels[predicted_class],
+            'signal': signal,
             'probabilities': {
                 'sell': float(adj_sell),
                 'hold': float(adj_hold),
@@ -197,6 +242,7 @@ def predict(ticker, timeframe):
     except Exception as e:
         print(f"Prediction error: {e}")
         return jsonify({"error": str(e)}), 500
+    
 @app.route('/info')
 def info():
     return render_template('info.html')
@@ -204,7 +250,7 @@ def info():
 @app.route('/api/recommendation/<ticker>')
 def get_openai_recommendation(ticker):
     try:
-        api_key = ""
+        api_key = "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"
         base_url = "https://api.openai.com/v1/chat/completions"
 
         stock = yf.Ticker(ticker)
@@ -248,10 +294,19 @@ def get_openai_recommendation(ticker):
         data = resp.json()
         
         return data.get("choices", [{}])[0].get("message", {}).get("content")
-
+    
     except Exception as e:
         print(f"OpenAI Agent Error: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/trade-history')
+def trade_history():
+    trades = trade_db.get_all_trades()
+    completed_trades = trade_db.get_success_ratio()
+    success_count = sum(1 for trade in completed_trades if trade['status'] == 'SUCCESSFUL')
+    ratio = success_count / len(completed_trades) if completed_trades else 0
+    return render_template('trade_history.html', trades=trades, ratio=ratio)
     
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000, use_reloader=False)

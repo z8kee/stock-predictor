@@ -41,10 +41,10 @@ def find_thresholds(timeframe):
 if __name__ == "__main__":
     for t in timeframess:
         data_folder = rf'data\{t}' 
-        model_path = rf'models/autoencoder_{t}.keras'
+        model_path = rf'src\models\autoencoder_{t}.keras'
         print(f"timeframe {t}")
         find_thresholds(t)
 
 #used ai to find the 99th percentile of autoencoder prediction values, this allows me to look for a black swan event
 #unfortunately used it because i am tired
-black_swan_timeframes = {'1m': 1.0546, '5m': 2.5955, '15m': 2.7866, '1h': 2.4900, '1d': 0.8567}
+black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}

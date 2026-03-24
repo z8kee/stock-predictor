@@ -27,14 +27,14 @@ class SentimentAnalyser:
         output = self.model(tokenised_input)
         probs = tf.nn.softmax(output.logits, axis=-1)
 
-        pos_score = probs[0][0].numpy()
-        neg_score = probs[0][1].numpy()
+        pos_score = probs[:, 0].numpy()
+        neg_score = probs[:, 1].numpy()
 
         final_score = pos_score - neg_score
 
-        return final_score
+        return float(np.mean(final_score))
 
-    def apply_sentiment_scaling(self, prob_buy, prob_hold, prob_sell, sentiment_score, max_weight=5.0):
+    def apply_sentiment_scaling(self, prob_buy, prob_hold, prob_sell, sentiment_score, max_weight):
         buy_multiplier = 1.0
         sell_multiplier = 1.0
         hold_multiplier = 1.0

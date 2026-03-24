@@ -30,19 +30,21 @@ def apply_triple_barrier(df, forward_window, profit_factor, stop_factor):
 
     return signals
 
-def compute_indicators_and_pct(ticker, df, vix_series):
+def compute_indicators_and_pct(ticker, df, vix_series, interval):
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     
+    forward_windows = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
+    barrier_targets = {'1m': 6.5, '5m': 7.5, '15m': 7.0, '1h': 6.0, '1d': 4.5}
     df.index.name = None 
 
+    # --- Keep Raw Target for the "Trend Line" ---
+    # We save this before doing any log transforms
     df['Target_Close'] = df['Close']
-    
-    #high-low spread
 
     df['HL_Spread'] = (df['High'] - df['Low']) / df['Close']
     
-    # technical indicators
+    # Technical Indicators
     df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
     df['EMA_Dist'] = (df['Close'] - df['EMA_20']) / df['EMA_20']
     
@@ -56,13 +58,14 @@ def compute_indicators_and_pct(ticker, df, vix_series):
     low_14 = df['Low'].rolling(window=14).min()
     high_14 = df['High'].rolling(window=14).max()
     
-    #gives current close relative to the 14 day period, giving a scale between 0 and 1
+    # %K line (Current close relative to the 14-period range)
+    # This natively scales between 0.0 and 1.0!
     df['Stoch_K'] = (df['Close'] - low_14) / (high_14 - low_14)
     
-    # 3 day moving average of stoch k
+    # %D line (3-period moving average of %K)
     df['Stoch_D'] = df['Stoch_K'].rolling(window=3).mean()
     
-    # merging vix together
+    # Merge VIX
     df['Date_Join'] = df.index.date
     vix_temp = vix_series.copy()
     vix_temp.index = vix_temp.index.date
@@ -72,7 +75,7 @@ def compute_indicators_and_pct(ticker, df, vix_series):
     
     prev_close = df['Close'].shift(1)
     
-    # macd, bollinger bands, roc
+    # MACD, ROC, Bollinger Bands
     df['MACD'] = df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()
     df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
     df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
@@ -84,35 +87,37 @@ def compute_indicators_and_pct(ticker, df, vix_series):
     df['BB_Position'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
     df['BB_Width'] = df['BB_Upper'] - df['BB_Lower']
 
-    # log returns instead of target price so model doesnt echo output
+    # --- FEATURE ENGINEERING (Log Returns for Input) ---
     df_final = pd.DataFrame(index=df.index)
     df_final['Open'] = np.log(df['Open'] / prev_close)
     df_final['High'] = np.log(df['High'] / prev_close)
     df_final['Low'] = np.log(df['Low'] / prev_close)
     df_final['Close'] = np.log(df['Close'] / prev_close)
 
-    # calculate atr
+    # --- CALCULATE ATR (Average True Range) ---
+    # 1. True Range components
     high_low = df['High'] - df['Low']
     high_prev_close = np.abs(df['High'] - df['Close'].shift(1))
     low_prev_close = np.abs(df['Low'] - df['Close'].shift(1))
     
-    # for each row, find the maximum out of the 3
+    # 2. Find the maximum of the three for each row
     true_range = pd.concat([high_low, high_prev_close, low_prev_close], axis=1).max(axis=1)
     
-    # calculate 14 day average
+    # 3. Calculate the 14-period Average True Range
     df['ATR'] = true_range.rolling(window=14).mean()
     
-    # convert to pct to match log returns
+    # 4. Convert to Percentage (so it matches your Log Returns)
     df['ATR_pct'] = df['ATR'] / df['Close']   
     
     #macro trend distance
     df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
     df['Trend_Dist_50'] = (df['Close'] - df['EMA_50']) / df['EMA_50']
- 
+    
+    # 2. Macro Trend
     df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
     df['Trend_Dist_200'] = (df['Close'] - df['EMA_200']) / df['EMA_200']
     
-    # checks how far apart the 2 emas are
+    # 3. The Reversal Indicator (How far apart are the two EMAs?)
     df['EMA_Spread'] = (df['EMA_50'] - df['EMA_200']) / df['EMA_200']
     
     # cyclical time features
@@ -134,18 +139,18 @@ def compute_indicators_and_pct(ticker, df, vix_series):
     # #vwap
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
     if 'Volume' in df.columns and df['Volume'].sum() > 0:
-        # check for rolling vwap, add a small value to stop div by 0
+        # Add a tiny epsilon (1e-8) to the denominator to mathematically prevent division by zero
         vol_sum = df['Volume'].rolling(window=24).sum()
         df['Rolling_VWAP'] = (typical_price * df['Volume']).rolling(window=24).sum() / (vol_sum + 1e-8)
     else:
-        #if there is no volume we just use the moving average of the price
-        #this acts identically to VWAP for the neural network's purposes.
+        # FALLBACK: If there is no volume (like in Forex), we just use the moving average of the typical price.
+        # This acts identically to VWAP for the neural network's purposes.
         df['Rolling_VWAP'] = typical_price.rolling(window=24).mean()
     df['VWAP_Dist'] = (df['Close'] - df['Rolling_VWAP']) / df['Rolling_VWAP']
 
 
     # --- ADD TARGETS & REMAINING FEATURES ---
-    df_final['Target_Close'] = df['Target_Close']
+    df_final['Target_Close'] = df['Target_Close'] # This is the price for the trend line
     df_final['VIX'] = np.log(df['VIX'] / df['VIX'].shift(1).replace(0, np.nan)).fillna(0)
     df_final['RSI'] = df['RSI']
     df_final['EMA_Dist'] = df['EMA_Dist']
@@ -159,7 +164,7 @@ def compute_indicators_and_pct(ticker, df, vix_series):
     df_final['Volatility'] = df['HL_Spread']
     df_final['Hour_Sin'] = df['Hour_Sin']
     df_final['Hour_Cos'] = df['Hour_Cos']
-    df_final['Signal'] = apply_triple_barrier(df, 60, 7.0, 6.7)
+    df_final['Signal'] = apply_triple_barrier(df, forward_windows[interval], barrier_targets[interval], barrier_targets[interval]/1.5)
     df_final['is_new_york'] = df['is_new_york']
     df_final['is_london'] = df['is_london']
     df_final['is_asia'] = df['is_asia']
@@ -206,7 +211,7 @@ if __name__ == "__main__":
                 if raw_df.empty:
                     continue
                     
-                clean_df = compute_indicators_and_pct(t, raw_df, vix_series)
+                clean_df = compute_indicators_and_pct(t, raw_df, vix_series, interval)
                 
                 # drop rows only if vix is null, forward fill vix with 0s instead of deleting it
 
@@ -225,7 +230,7 @@ if __name__ == "__main__":
                 clean_df.to_csv(save_path)
                 print(f"  Saved {t} -> {len(clean_df)} rows")
                     
-                df = pd.read_csv(f'data/1h/{safe_ticker}.csv')
+                df = pd.read_csv(save_path)
                 print(df['Signal'].value_counts(normalize=True) * 100)
 
             except Exception as e:

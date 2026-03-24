@@ -1,20 +1,23 @@
-FROM python:3.11-slim
+# Use the official, lightweight Python 3.10 image
+FROM python:3.10-slim
 
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
-
-ENV PYTHONUNBUFFERED=1
-
-# 1. Keep the root working directory clean
+# Set the working directory inside the container
 WORKDIR /app
 
-# 2. Copy and install requirements
-COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
+# Install system dependencies (required for some ML libraries)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# 3. Copy the project (This cleanly puts your code at /app/src/app.py)
+# Copy the requirements file and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of your application code into the container
 COPY . .
 
+# Expose the port Flask runs on
 EXPOSE 5000
 
-# 4. Use Gunicorn's built-in --chdir flag to step into the src folder before running
-CMD ["gunicorn", "--workers", "3", "--threads", "2", "--bind", "0.0.0.0:5000", "--timeout", "120", "--chdir", "src", "app:app"]
+# Command to run the application
+CMD ["python", "app.py"]

@@ -15,7 +15,7 @@ const chart = LightweightCharts.createChart(document.getElementById('tvchart'), 
         horzLines: { color: '#636262' },
     },
     width: document.getElementById('tvchart').clientWidth,
-    height: 500,
+    height: 700,
 });
 
 const candleSeries = chart.addCandlestickSeries({
@@ -183,16 +183,29 @@ async function fetchAndDisplayPrediction() {
 
         updatePredictionPanel(result);
 
-        // ONLY draw a chart marker and PLAY SOUND if it's a BUY or SELL
+        
         if (result.signal !== 'HOLD') {
             
-            // --- NEW: Play Alert Sound ---
-            const alertSound = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-            alertSound.play().catch(e => console.log("Sound blocked by browser:", e));
-
             const allData = candleSeries.data();
             if (!allData || allData.length === 0) return;
+            
             const lastCandle = allData[allData.length - 1];
+            const currentIndex = allData.length - 1;
+
+            const minGapCandles = 5; 
+            
+            if (signalMarkers.length > 0) {
+                const lastMarker = signalMarkers[signalMarkers.length - 1];
+                const lastMarkerIndex = allData.findIndex(d => d.time === lastMarker.time);
+
+                if (lastMarkerIndex !== -1 && (currentIndex - lastMarkerIndex) < minGapCandles) {
+                    return;
+                }
+            }
+            const alertSound = new Audio('https://actions.google.com/sounds/v1/impacts/crash.ogg');
+            alertSound.play().catch(e => console.log("Sound blocked by browser:", e));
+
+            if (!allData || allData.length === 0) return;
 
             const confidence = result.signal === 'BUY' ? result.probabilities.buy : result.probabilities.sell;
 
@@ -242,7 +255,7 @@ function startPredictions() {
 function updatePredictionPanel(result) {
     const panel = document.getElementById('prediction-panel');
     const interval = intervalSelect.value;
-    const black_swan_timeframes = {'1m': 1.0546, '5m': 2.5955, '15m': 2.7866, '1h': 2.4900, '1d': 0.8567}
+    const black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
     panel.style.display = 'block'; // unhide the panel
 
     const signalColor = result.signal === 'BUY' ? '#26a69a' : result.signal === 'SELL' ? '#ef5350' : '#888';

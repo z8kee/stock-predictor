@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trade History - Stock Predictor</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <nav>
+        <a href="{{ url_for('start') }}">Home</a>
+        <a href="{{ url_for('home') }}">Stock Predictor</a>
+        <a href="{{ url_for('info') }}">Info</a>
+    </nav>
+</head>
+<body>
+    <h1>Trade History</h1>
+    <p>Success Ratio: {{ "%.2f"|format(ratio) }}</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Date/Time</th>
+                <th>Ticker</th>
+                <th>Signal</th>
+                <th>Entry Price</th>
+                <th>Target Price</th>
+                <th>Stop Loss</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for trade in trades %}
+            <tr>
+                <td>{{ trade.date_time }}</td>
+                <td>{{ trade.ticker }}</td>
+                <td>{{ trade.signal }}</td>
+                <td>{{ "%.2f"|format(trade.entry_price) }}</td>
+                <td>{{ "%.2f"|format(trade.target_price) }}</td>
+                <td>{{ "%.2f"|format(trade.stop_loss) }}</td>
+                <td>{{ trade.status }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <footer>
+        <p>&copy; z8kee. All rights reserved.</p>
+    </footer>
+</body>
+</html>
