@@ -8,3 +8,4 @@ transformers==4.40.0
 scikit-learn
 matplotlib
 gunicorn
+python-dotenv
