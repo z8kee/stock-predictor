@@ -206,7 +206,7 @@ def predict(ticker, timeframe):
         probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
         black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
         labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
-        curr_shift = 2.0 if float(anomaly_raw) < black_swan_timeframes.get(timeframe, 2.5) else 0.95
+        curr_shift = 3.0 if float(anomaly_raw) < black_swan_timeframes.get(timeframe, 2.5) else 1.5
         adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], sentiment_score, curr_shift)
         predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))
         signal = labels[predicted_class]
