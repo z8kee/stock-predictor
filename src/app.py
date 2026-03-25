@@ -33,6 +33,18 @@ def start():
 def home():
     return render_template('index.html')
 
+def robust_download(ticker, interval, period, retries=3):
+    """Attempts to download Yahoo data multiple times before failing."""
+    for attempt in range(retries):
+        try:
+            df = yf.download(ticker, interval=interval, period=period, progress=False)
+            if not df.empty and len(df) > 10:
+                return df
+        except Exception as e:
+            print(f"Yahoo download failed (Attempt {attempt+1}/{retries}): {e}")
+        time.sleep(2) # Wait 2 seconds before trying again
+    return pd.DataFrame() # Return empty if all retries fail
+
 @app.route('/api/history/<ticker>/<interval>')
 def get_history(ticker, interval):
     # Create a unique key for the cache (e.g., "GC=F_5m")
@@ -155,8 +167,12 @@ def predict(ticker, timeframe):
                         'Volatility', 'RSI', 'ROC', 'BB_Position',
                         'Stoch_K', 'Stoch_D']
 
-        raw_df = yf.download(ticker, interval=timeframe, period=period_map.get(timeframe, '60d'), progress=False)
+        raw_df = robust_download(ticker, timeframe, period_map.get(timeframe, '60d'))
 
+        if raw_df.empty:
+            print(f"{ticker}-{timeframe} data collection failed. returning 0s for safety")
+            return jsonify({'signal': 'HOLD', 'probabilities': {'buy':0, 'hold':1, 'sell':0}, 'sentiment': 0, 'anomaly': 0})
+        
         curr_hash = round(time.time() / 300)
         vix_series = fetch_cached_vix(curr_hash)
 
@@ -285,7 +301,7 @@ def fetch_llm_sentiment(ticker, model_name):
     Provide exactly 3 things:
     1. "recommendation": Choose one: [Strong Sell, Sell, Hold, Buy, Strong Buy].
     2. "description": A 2-3 sentence summary.
-    3. "rating": A float from -0.100 to 0.100 based on the news.
+    3. "rating": A float from -0.1000 to 0.1000 based on the news, be very precise with the numbers (e.g -0.0587).
     Respond ONLY in valid JSON format.
     """
     
@@ -318,10 +334,6 @@ def trade_history():
     success_count = sum(1 for trade in completed_trades if trade['status'] == 'SUCCESSFUL')
     ratio = success_count / len(completed_trades) if completed_trades else 0
     return render_template('trade_history.html', trades=trades, ratio=ratio)
-    
-
-
-
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, use_reloader=False)

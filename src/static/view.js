@@ -302,8 +302,7 @@ async function getAiRecommendations() {
             return;
         }
 
-        // Color code the recommendation text
-        let recColor = '#888';
+        let recColor = '#a763207f';
         if (data.recommendation.includes('Buy')) recColor = '#26a69a';
         if (data.recommendation.includes('Sell')) recColor = '#ef5350';
 
