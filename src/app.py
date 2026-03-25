@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
 
-
 load_dotenv()
 from db import TradeHistoryDB
 
@@ -237,7 +236,7 @@ def predict(ticker, timeframe):
             print(f"LLM sentiment failed, defaulting to 0: {e}")
             openai_score = 0.0
 
-        final_sentiment = (finbert_sentiment_score * 0.3) + (openai_score * 0.7)
+        final_sentiment = (finbert_sentiment_score * 0.2) + (openai_score * 0.8)
         adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], final_sentiment, curr_shift)
         
         predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))

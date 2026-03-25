@@ -17,7 +17,7 @@ const chart = LightweightCharts.createChart(document.getElementById('tvchart'), 
         horzLines: { color: '#636262' },
     },
     width: document.getElementById('tvchart').clientWidth,
-    height: 700,
+    height: 840,
 });
 
 const candleSeries = chart.addCandlestickSeries({
@@ -302,7 +302,7 @@ async function getAiRecommendations() {
             return;
         }
 
-        let recColor = '#a763207f';
+        let recColor = '#888888';
         if (data.recommendation.includes('Buy')) recColor = '#26a69a';
         if (data.recommendation.includes('Sell')) recColor = '#ef5350';
 

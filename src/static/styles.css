@@ -46,11 +46,15 @@ body {
                 background: #181717;
                 margin-left: 20px;     
                 font-size: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.356);
+                border-radius: 20px;
+                padding: 6px 14px;
                 transition: color 0.2s;
             }
 
             nav a:hover {
-                color: #9c14c5; 
+                color: #858585;
+                border-color: #ffffff;
             }
             .dashboard-grid {
                 display: flex;
