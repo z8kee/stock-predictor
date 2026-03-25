@@ -4,6 +4,8 @@ const loadingBar = document.getElementById('loading-bar');
 const predictBtn = document.querySelector('.Predict-btn');
 const newsBtn = document.querySelector('.News-btn');
 const recBtn = document.querySelector('.Recommend-btn')
+const bigBoyGPT = "gpt-5.4-mini";
+
 // initalise the chart
 const chart = LightweightCharts.createChart(document.getElementById('tvchart'), {
     layout: {
@@ -292,7 +294,7 @@ async function getAiRecommendations() {
     recBtn.disabled = true;
     
     try {
-        const response = await fetch(`/api/recommendation/${ticker}`);
+        const response = await fetch(`/api/recommendation/${ticker}/${bigBoyGPT}`);
         const data = await response.json();
         
         if (data.error) {
@@ -307,9 +309,9 @@ async function getAiRecommendations() {
 
         panel.style.display = 'block';
         panel.innerHTML = `
-            <h3 style="margin-top:0; color: #ffffff;">Overall Decision</h3>
+            <h3 style="margin-top:0; color: #ffffff;">What Today Looks Like</h3>
             <div style="font-size: 1.3em; font-weight: bold; color: ${recColor}; margin-bottom: 10px;">
-                ${data.recommendation}
+                ${data.recommendation} Day
             </div>
             <div style="color: #aaa; line-height: 1.5; font-size: 0.95em;">
                 ${data.description}

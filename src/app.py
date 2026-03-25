@@ -1,15 +1,25 @@
+import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf
+import requests, os, json, time
 from flask import Flask, render_template, jsonify
-import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf, time, requests, os
 from functools import lru_cache
 from dotenv import load_dotenv
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
 
+
 load_dotenv()
 from db import TradeHistoryDB
 
 app = Flask(__name__)
+
 stock_cache = {}
+model_cache = {}
+
+black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
+barrier_targets = {'1m': 6.5, '5m': 7.5, '15m': 7.0, '1h': 6.0, '1d': 4.5}
+labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
+period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
+window_sizes = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
 
 analyser = SentimentAnalyser()
 trade_db = TradeHistoryDB()
@@ -116,8 +126,6 @@ def get_news_sentiment(ticker):
         print(f"Error fetching or analyzing news: {e}")
         return jsonify({"error": "Could not fetch or analyze news"}), 500
 
-model_cache = {}
-
 def get_models(timeframe):
     if timeframe not in model_cache:
         custom_objects = {'mse': tf.keras.losses.MeanAbsoluteError, 'mae': tf.keras.losses.MeanAbsoluteError}
@@ -147,7 +155,6 @@ def predict(ticker, timeframe):
                         'Volatility', 'RSI', 'ROC', 'BB_Position',
                         'Stoch_K', 'Stoch_D']
 
-        period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
         raw_df = yf.download(ticker, interval=timeframe, period=period_map.get(timeframe, '60d'), progress=False)
 
         curr_hash = round(time.time() / 300)
@@ -159,7 +166,6 @@ def predict(ticker, timeframe):
         if len(df) < 60:
             return jsonify({"error": "Not enough data for prediction"}), 400
 
-        window_sizes = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
         w_size = window_sizes.get(timeframe, 30)
 
         models = get_models(timeframe)
@@ -177,8 +183,8 @@ def predict(ticker, timeframe):
             title = content.get('title', '')
             if title:
                 headlines.append(title)
-        sentiment_score = float(analyser.get_sentiment_score(headlines)) if headlines else 0.0
-        sentiment_input = np.array([[sentiment_score]])
+        finbert_sentiment_score = float(analyser.get_sentiment_score(headlines)) if headlines else 0.0
+        sentiment_input = np.array([[finbert_sentiment_score]])
 
         # 5. Predict
         current_price = float(raw_df['Close'].iloc[-1])
@@ -187,7 +193,7 @@ def predict(ticker, timeframe):
         high_close = np.abs(raw_df['High'] - raw_df['Close'].shift())
         low_close = np.abs(raw_df['Low'] - raw_df['Close'].shift())
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        current_atr = float(tr.rolling(14).mean().iloc[-1])
+        current_atr = float(tr.rolling(12).mean().iloc[-1])
 
         open_trades = trade_db.get_trades_by_status('OPEN')
         for trade in open_trades:
@@ -204,24 +210,34 @@ def predict(ticker, timeframe):
                     trade_db.update_trade_status(trade['id'], status)
 
         probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
-        black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
-        labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
-        curr_shift = 3.0 if float(anomaly_raw) < black_swan_timeframes.get(timeframe, 2.5) else 1.5
-        adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], sentiment_score, curr_shift)
+
+        curr_shift = 3.5 if float(anomaly_raw) < black_swan_timeframes[timeframe] else 1.5
+
+        try:
+            llm_data = fetch_llm_sentiment(ticker, "gpt-4o-mini")
+            openai_score = float(llm_data.get("rating", 0.0))
+            print(f"Openai score: {openai_score}")
+        except Exception as e:
+            print(f"LLM sentiment failed, defaulting to 0: {e}")
+            openai_score = 0.0
+
+        final_sentiment = (finbert_sentiment_score * 0.3) + (openai_score * 0.7)
+        adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], final_sentiment, curr_shift)
+        
         predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))
         signal = labels[predicted_class]
-
-        if signal in [0, 2]:
+        print(f"Buy: {probs[2]:.3f} | Sell: {probs[0]:.3f} | Hold: {probs[1]:.3f} | ATR: {current_atr:.4f}")
+        
+        if signal in ['BUY', 'SELL']:
             currently_open = [t for t in trade_db.get_trades_by_status('OPEN') if t['ticker'] == ticker]
 
             if not currently_open:
-                barrier_targets = {'1m': 6.5, '5m': 7.5, '15m': 7.0, '1h': 6.0, '1d': 4.5}
-                profit_factor = barrier_targets.get(timeframe, 6.5)
+                profit_factor = (barrier_targets.get(timeframe, 6.5))/2
                 
                 profit_dist = profit_factor * current_atr
                 stop_dist = profit_dist / 1.5
                 
-                if signal == 2:
+                if signal == 'BUY':
                     target_price = current_price + profit_dist
                     stop_loss = current_price - stop_dist
                 else: # SELL
@@ -229,7 +245,7 @@ def predict(ticker, timeframe):
                     stop_loss = current_price + stop_dist
                 
                 # Save to your SQLite database
-                trade_db.insert_trade(ticker, signal, current_price, target_price, stop_loss)
+                trade_db.insert_trade(ticker, signal, current_price, target_price, stop_loss, timeframe)
 
         return jsonify({
             'signal': signal,
@@ -238,7 +254,7 @@ def predict(ticker, timeframe):
                 'hold': float(adj_hold),
                 'buy':  float(adj_buy)
             },
-            'sentiment': sentiment_score,
+            'sentiment': final_sentiment,
             'anomaly': float(anomaly_raw)
         })
 
@@ -250,56 +266,49 @@ def predict(ticker, timeframe):
 def info():
     return render_template('info.html')
 
-@app.route('/api/recommendation/<ticker>')
-def get_openai_recommendation(ticker):
-    try:
-        api_key = os.getenv('OPENAI_API_KEY', '')
-        base_url = "https://api.openai.com/v1/chat/completions"
+def fetch_llm_sentiment(ticker, model_name):
+    api_key = os.getenv('OPENAI_API_KEY', '')
+    base_url = "https://api.openai.com/v1/chat/completions"
 
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1d")
-        current_price = hist['Close'].iloc[-1] if not hist.empty else "Unknown"
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period="1d")
+    current_price = hist['Close'].iloc[-1] if not hist.empty else "Unknown"
 
-        headlines = []
-        for item in stock.news[:3]:
-            content = item.get('content', item)
-            if content.get('title'):
-                headlines.append(content.get('title'))
-        news_context = " | ".join(headlines)
+    headlines = [item.get('content', item).get('title') for item in stock.news[:3] if item.get('content', item).get('title')]
+    news_context = " | ".join(headlines)
 
-        SYSTEM_PROMPT = f"""
-        You are an expert quantitative financial analyst. Analyze the current market context for {ticker}.
-        - The current live price is: {current_price}
-        - The latest news headlines today are: {news_context}
-        
-        Provide exactly two things:
-        1. "recommendation": Strictly choose exactly one of these strings: [Strong Sell, Sell, Hold, Buy, Strong Buy].
-        2. "description": A 2-3 sentence summary of today's market structure for this asset based on the price and news provided, justifying your recommendation.
-        
-        Respond ONLY in valid JSON format.
-        """
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        messages = [
-            {"role": "system", "content": "You are a financial AI agent that outputs strictly in JSON."},
-            {"role": "user", "content": SYSTEM_PROMPT}
-        ]
-
-        payload = {"model": "gpt-4o-mini", "messages": messages}
-        resp = requests.post(base_url, json=payload, headers=headers)
-        
-        if resp.status_code != 200:
-            raise RuntimeError(f"Chat completion failed: {resp.status_code} {resp.text}")
-        
-        data = resp.json()
-        
-        return data.get("choices", [{}])[0].get("message", {}).get("content")
+    SYSTEM_PROMPT = f"""
+    You are an expert quantitative financial analyst. Analyze the market for {ticker}.
+    - Live price: {current_price}
+    - Latest headlines: {news_context}
     
+    Provide exactly 3 things:
+    1. "recommendation": Choose one: [Strong Sell, Sell, Hold, Buy, Strong Buy].
+    2. "description": A 2-3 sentence summary.
+    3. "rating": A float from -0.100 to 0.100 based on the news.
+    Respond ONLY in valid JSON format.
+    """
+    
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    messages = [
+        {"role": "system", "content": "You output strict JSON."},
+        {"role": "user", "content": SYSTEM_PROMPT}
+    ]
+
+    resp = requests.post(base_url, json={"model": model_name, "messages": messages, "response_format": {"type": "json_object"}}, headers=headers)
+    
+    if resp.status_code != 200:
+        raise RuntimeError(f"OpenAI error: {resp.status_code}")
+    
+    raw_content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "{}")
+    return json.loads(raw_content) # Convert JSON string to Python dictionary
+
+@app.route('/api/recommendation/<ticker>/<gpt_model>')
+def frontend_recommendation(ticker, gpt_model):
+    try:
+        data = fetch_llm_sentiment(ticker, gpt_model)
+        return jsonify(data)
     except Exception as e:
-        print(f"OpenAI Agent Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/trade-history')
@@ -310,6 +319,9 @@ def trade_history():
     ratio = success_count / len(completed_trades) if completed_trades else 0
     return render_template('trade_history.html', trades=trades, ratio=ratio)
     
+
+
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, use_reloader=False)

@@ -5,43 +5,133 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <nav>
-        <a href="{{ url_for('start') }}">Home</a>
-        <a href="{{ url_for('home') }}">Stock Predictor</a>
-        <a href="{{ url_for('info') }}">Info</a>
-    </nav>
+    
+    <style>
+        /* Institutional Dark Mode Table CSS */
+        body {
+            background-color: #0b0e14; /* Deep dashboard background */
+            color: #d1d5db;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        
+        .table-container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #111827;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            border: 1px solid #1f2937;
+        }
+
+        .stats-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #374151;
+            padding-bottom: 15px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+
+        th {
+            background-color: #1f2937;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.8rem;
+            padding: 14px 16px;
+            text-align: left;
+            border-radius: 4px;
+        }
+
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #1f2937;
+            vertical-align: middle;
+        }
+
+        tr:hover {
+            background-color: #1f293780;
+        }
+
+        /* Signal Colors */
+        .text-buy { color: #10b981; font-weight: 600; }
+        .text-sell { color: #ef4444; font-weight: 600; }
+
+        /* Status Badges */
+        .badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+        .badge-open { background-color: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-successful { background-color: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-failed { background-color: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    </style>
 </head>
 <body>
-    <h1>Trade History</h1>
-    <p>Success Ratio: {{ "%.2f"|format(ratio) }}</p>
-    <table>
-        <thead>
-            <tr>
-                <th>Date/Time</th>
-                <th>Ticker</th>
-                <th>Signal</th>
-                <th>Entry Price</th>
-                <th>Target Price</th>
-                <th>Stop Loss</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for trade in trades %}
-            <tr>
-                <td>{{ trade.date_time }}</td>
-                <td>{{ trade.ticker }}</td>
-                <td>{{ trade.signal }}</td>
-                <td>{{ "%.2f"|format(trade.entry_price) }}</td>
-                <td>{{ "%.2f"|format(trade.target_price) }}</td>
-                <td>{{ "%.2f"|format(trade.stop_loss) }}</td>
-                <td>{{ trade.status }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <footer>
-        <p>&copy; z8kee. All rights reserved.</p>
-    </footer>
+    <nav style="padding: 15px; background: #1f2937; display: flex; gap: 20px;">
+        <a href="{{ url_for('start') }}" style="color: white; text-decoration: none;">Home</a>
+        <a href="{{ url_for('home') }}" style="color: white; text-decoration: none;">Stock Predictor</a>
+        <a href="{{ url_for('info') }}" style="color: white; text-decoration: none;">Info</a>
+    </nav>
+
+    <div class="table-container">
+        <div class="stats-header">
+            <h2 style="margin: 0; color: white;">Live Trade Ledger</h2>
+            <div style="background: #1f2937; padding: 8px 16px; border-radius: 6px; font-weight: bold;">
+                Win Rate: <span style="color: {% if ratio >= 0.5 %}text-buy{% else %}.text-sell{% endif %};">{{ "%.2f"|format(ratio * 100) }}%</span>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Date/Time</th>
+                    <th>Ticker</th>
+                    <th>Signal</th>
+                    <th>Entry Price</th>
+                    <th>Target Price</th>
+                    <th>Stop Loss</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for trade in trades %}
+                <tr>
+                    <td style="color: #9ca3af; font-family: monospace;">{{ trade.date_time.split('.')[0].replace('T', ' ') }}</td>
+                    
+                    <td style="font-weight: 600;">{{ trade.ticker }}</td>
+                    
+                    <td class="{% if trade.signal == 'BUY' %}text-buy{% else %}text-sell{% endif %}">
+                        {{ trade.signal }}
+                    </td>
+                    
+                    <td>{{ "%.4f"|format(trade.entry_price) }}</td>
+                    <td style="color: #10b981;">{{ "%.4f"|format(trade.target_price) }}</td>
+                    <td style="color: #ef4444;">{{ "%.4f"|format(trade.stop_loss) }}</td>
+                    
+                    <td>
+                        {% if trade.status == 'OPEN' %}
+                            <span class="badge badge-open">OPEN</span>
+                        {% elif trade.status == 'SUCCESSFUL' %}
+                            <span class="badge badge-successful">SUCCESSFUL</span>
+                        {% elif trade.status == 'FAILED' %}
+                            <span class="badge badge-failed">FAILED</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </body>
 </html>

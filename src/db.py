@@ -16,6 +16,7 @@ class TradeHistoryDB:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     date_time TEXT NOT NULL,
                     ticker TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
                     signal TEXT NOT NULL CHECK(signal IN ('BUY', 'SELL')),
                     entry_price REAL NOT NULL,
                     target_price REAL NOT NULL,
@@ -25,15 +26,15 @@ class TradeHistoryDB:
             ''')
             conn.commit()
 
-    def insert_trade(self, ticker, signal, entry_price, target_price, stop_loss):
+    def insert_trade(self, ticker, signal, entry_price, target_price, stop_loss, timeframe):
         """Insert a new trade into the database."""
         date_time = datetime.now().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO trade_history (date_time, ticker, signal, entry_price, target_price, stop_loss)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (date_time, ticker, signal, entry_price, target_price, stop_loss))
+                INSERT INTO trade_history (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss))
             conn.commit()
             return cursor.lastrowid
 
