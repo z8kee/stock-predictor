@@ -17,7 +17,7 @@ const chart = LightweightCharts.createChart(document.getElementById('tvchart'), 
         horzLines: { color: '#636262' },
     },
     width: document.getElementById('tvchart').clientWidth,
-    height: 840,
+    height: 700,
 });
 
 const candleSeries = chart.addCandlestickSeries({
@@ -45,7 +45,13 @@ async function fetchAndRenderChart(ticker, interval, isManualUpdate = true) {
         let data = await response.json();
 
         // avoids duplicates and allows order
-        data = data.filter((v, i, a) => a.findIndex(t => t.time === v.time) === i);
+        const seenTimes = new Set();
+        data = data.filter(d => {
+            if (seenTimes.has(d.time)) return false;
+            seenTimes.add(d.time);
+            return true;
+        });
+        
         data.sort((a, b) => a.time - b.time);
 
         if (isManualUpdate) {
@@ -185,7 +191,6 @@ async function fetchAndDisplayPrediction() {
 
         updatePredictionPanel(result);
 
-        
         if (result.signal !== 'HOLD') {
             
             const allData = candleSeries.data();
@@ -257,6 +262,7 @@ function startPredictions() {
 function updatePredictionPanel(result) {
     const panel = document.getElementById('prediction-panel');
     const interval = intervalSelect.value;
+    const stock = assetSelect.value;
     const black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
     panel.style.display = 'block'; // unhide the panel
 
@@ -271,7 +277,7 @@ function updatePredictionPanel(result) {
     }
     
     panel.innerHTML = `
-        <h2 style="margin-top:0">Latest Prediction</h2>
+        <h2 style="margin-top:0">Latest Prediction on ${interval} | ${stock}</h2>
         <div style="font-size: 1.4em; font-weight: bold; color: ${signalColor}">${result.signal}</div>
         <div style="margin-top: 10px; color: #aaa;">
             Buy: ${(result.probabilities.buy * 100).toFixed(1)}% &nbsp;|&nbsp;

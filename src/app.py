@@ -33,7 +33,6 @@ def home():
     return render_template('index.html')
 
 def robust_download(ticker, interval, period, retries=3):
-    """Attempts to download Yahoo data multiple times before failing."""
     for attempt in range(retries):
         try:
             df = yf.download(ticker, interval=interval, period=period, progress=False)
@@ -41,8 +40,8 @@ def robust_download(ticker, interval, period, retries=3):
                 return df
         except Exception as e:
             print(f"Yahoo download failed (Attempt {attempt+1}/{retries}): {e}")
-        time.sleep(2) # Wait 2 seconds before trying again
-    return pd.DataFrame() # Return empty if all retries fail
+        time.sleep(2)
+    return pd.DataFrame()
 
 @app.route('/api/history/<ticker>/<interval>')
 def get_history(ticker, interval):
@@ -166,7 +165,12 @@ def predict(ticker, timeframe):
                         'Volatility', 'RSI', 'ROC', 'BB_Position',
                         'Stoch_K', 'Stoch_D']
 
-        raw_df = robust_download(ticker, timeframe, period_map.get(timeframe, '60d'))
+        cache_key = f"{ticker}_{timeframe}"
+        if cache_key in stock_cache and len(stock_cache[cache_key]) > 60:
+            raw_df = stock_cache[cache_key].copy()
+        else:
+            raw_df = robust_download(ticker, timeframe, period_map.get(timeframe, '60d'))
+            stock_cache[cache_key] = raw_df
 
         if raw_df.empty:
             print(f"{ticker}-{timeframe} data collection failed. returning 0s for safety")
@@ -231,12 +235,13 @@ def predict(ticker, timeframe):
         try:
             llm_data = fetch_llm_sentiment(ticker, "gpt-4o-mini")
             openai_score = float(llm_data.get("rating", 0.0))
-            print(f"Openai score: {openai_score}")
+            print(f"Openai score: {openai_score}, FinBERT score: {finbert_sentiment_score}")
+            final_sentiment = (finbert_sentiment_score * 0.2) + (openai_score * 0.8)
         except Exception as e:
             print(f"LLM sentiment failed, defaulting to 0: {e}")
             openai_score = 0.0
+            final_sentiment = finbert_sentiment_score
 
-        final_sentiment = (finbert_sentiment_score * 0.2) + (openai_score * 0.8)
         adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], final_sentiment, curr_shift)
         
         predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))
@@ -258,8 +263,7 @@ def predict(ticker, timeframe):
                 else: # SELL
                     target_price = current_price - profit_dist
                     stop_loss = current_price + stop_dist
-                
-                # Save to your SQLite database
+
                 trade_db.insert_trade(ticker, signal, current_price, target_price, stop_loss, timeframe)
 
         return jsonify({
@@ -298,10 +302,10 @@ def fetch_llm_sentiment(ticker, model_name):
     - Latest headlines: {news_context}
     
     Provide exactly 3 things:
-    1. "recommendation": Choose one: [Strong Sell, Sell, Hold, Buy, Strong Buy].
+    1. "recommendation": Choose one: [Strong Sell, Sell, Neutral, Buy, Strong Buy].
     2. "description": A 2-3 sentence summary.
     3. "rating": A float from -0.1000 to 0.1000 based on the news, be very precise with the numbers (e.g -0.0587).
-    Respond ONLY in valid JSON format.
+    Respond ONLY in valid, strict, JSON format.
     """
     
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
@@ -310,7 +314,7 @@ def fetch_llm_sentiment(ticker, model_name):
         {"role": "user", "content": SYSTEM_PROMPT}
     ]
 
-    resp = requests.post(base_url, json={"model": model_name, "messages": messages, "response_format": {"type": "json_object"}}, headers=headers)
+    resp = requests.post(base_url, json={"model": model_name, "messages": messages, "response_format": {"type": "json_object"}}, headers=headers, timeout=8)
     
     if resp.status_code != 200:
         raise RuntimeError(f"OpenAI error: {resp.status_code}")
