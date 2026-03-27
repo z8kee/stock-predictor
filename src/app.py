@@ -5,10 +5,9 @@ from functools import lru_cache
 from dotenv import load_dotenv
 from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
-
-load_dotenv()
 from db import TradeHistoryDB
 
+load_dotenv()
 app = Flask(__name__)
 
 stock_cache = {}
