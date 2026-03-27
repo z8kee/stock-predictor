@@ -247,9 +247,9 @@ def predict(ticker, timeframe):
                 
                 if status != 'OPEN':
                     if trade['signal'] == 'BUY':
-                        strategy = (current_price - trade['entry_price']) * 25
+                        strategy = (current_price - trade['entry_price']) * round(current_atr * 1.25, 1)
                     elif trade['signal'] == 'SELL':
-                        strategy = (trade['entry_price'] - current_price) * 25
+                        strategy = (trade['entry_price'] - current_price) * round(current_atr * 1.25, 1)
 
                     trade_db.update_trade_status(trade['id'], status, strategy)
 
