@@ -20,6 +20,10 @@ labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
 period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
 window_sizes = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
 
+rr_ratio = 1.25
+max_open_trades = 3
+max_duration = 120
+
 analyser = SentimentAnalyser()
 trade_db = TradeHistoryDB()
 print("analyser ready twin")
@@ -215,18 +219,39 @@ def predict(ticker, timeframe):
         current_atr = float(tr.rolling(12).mean().iloc[-1])
 
         open_trades = trade_db.get_trades_by_status('OPEN')
+        safe_index = raw_df.index.tz_localize(None) if raw_df.index.tz is not None else raw_df.index
         for trade in open_trades:
             if trade['ticker'] == ticker:
                 status = 'OPEN'
+
+                trade_time = pd.to_datetime(trade['date_time'])
+                post_trade_df = raw_df[safe_index >= trade_time]
+
+                if not post_trade_df.empty:
+                    highest_price_in_period = float(post_trade_df['High'].max())
+                    lowest_price_in_period = float(post_trade_df['Low'].min())
+                
+                if len(post_trade_df) >= max_duration:
+                    curr_price = float(post_trade_df['Close'].iloc[-1])
+                    if trade['signal'] == 'BUY':
+                        status = 'SUCCESSFUL' if curr_price > trade['entry_price'] else 'FAILED'
+                    elif trade['signal'] == 'SELL':
+                        status = 'SUCCESSFUL' if curr_price < trade['entry_price'] else 'FAILED'
+
                 if trade['signal'] == 'BUY':
-                    if current_price >= trade['target_price']: status = 'SUCCESSFUL'
-                    elif current_price <= trade['stop_loss']: status = 'FAILED'
+                    if highest_price_in_period >= trade['target_price']: status = 'SUCCESSFUL'
+                    elif lowest_price_in_period <= trade['stop_loss']: status = 'FAILED'
                 elif trade['signal'] == 'SELL':
-                    if current_price <= trade['target_price']: status = 'SUCCESSFUL'
-                    elif current_price >= trade['stop_loss']: status = 'FAILED'
+                    if lowest_price_in_period <= trade['target_price']: status = 'SUCCESSFUL'
+                    elif highest_price_in_period >= trade['stop_loss']: status = 'FAILED'
                 
                 if status != 'OPEN':
-                    trade_db.update_trade_status(trade['id'], status)
+                    if trade['signal'] == 'BUY':
+                        strategy = (current_price - trade['entry_price']) * 25
+                    elif trade['signal'] == 'SELL':
+                        strategy = (trade['entry_price'] - current_price) * 25
+
+                    trade_db.update_trade_status(trade['id'], status, strategy)
 
         probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
 
@@ -251,11 +276,11 @@ def predict(ticker, timeframe):
         if signal in ['BUY', 'SELL']:
             currently_open = [t for t in trade_db.get_trades_by_status('OPEN') if t['ticker'] == ticker]
 
-            if not currently_open:
+            if len(currently_open) <= max_open_trades:
                 profit_factor = (barrier_targets.get(timeframe, 6.5))/2
                 
                 profit_dist = profit_factor * current_atr
-                stop_dist = profit_dist / 1.5
+                stop_dist = profit_dist / rr_ratio
                 
                 if signal == 'BUY':
                     target_price = current_price + profit_dist

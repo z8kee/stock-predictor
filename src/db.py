@@ -8,7 +8,6 @@ class TradeHistoryDB:
         self.init_db()
 
     def init_db(self):
-        """Initialize the database and create the trade_history table if it doesn't exist."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -21,36 +20,34 @@ class TradeHistoryDB:
                     entry_price REAL NOT NULL,
                     target_price REAL NOT NULL,
                     stop_loss REAL NOT NULL,
+                    MONEY_MADE_OR_LOST REAL NOT NULL,
                     status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'SUCCESSFUL', 'FAILED'))
                 )
             ''')
             conn.commit()
 
-    def insert_trade(self, ticker, signal, entry_price, target_price, stop_loss, timeframe):
-        """Insert a new trade into the database."""
+    def insert_trade(self, ticker, signal, entry_price, target_price, stop_loss, timeframe, money):
         date_time = datetime.now().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO trade_history (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss))
+                INSERT INTO trade_history (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss, money_made_or_lost)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss, money))
             conn.commit()
             return cursor.lastrowid
 
-    def update_trade_status(self, trade_id, status):
-        """Update the status of a trade."""
+    def update_trade_status(self, trade_id, status, money):
         if status not in ['OPEN', 'SUCCESSFUL', 'FAILED']:
             raise ValueError("Status must be 'OPEN', 'SUCCESSFUL', or 'FAILED'")
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                UPDATE trade_history SET status = ? WHERE id = ?
-            ''', (status, trade_id))
+                UPDATE trade_history SET status = ? WHERE id = ? AND money_made_or_lost = ?
+            ''', (status, trade_id, money))
             conn.commit()
 
     def get_all_trades(self):
-        """Retrieve all trades from the database."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM trade_history ORDER BY date_time DESC')
@@ -85,3 +82,13 @@ class TradeHistoryDB:
             rows = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
             return [dict(zip(columns, row)) for row in rows]
+        
+
+    def update_money_made_or_lost(self, trade_id, money):
+        """Update the money_made_or_lost field for a trade."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE trade_history SET MONEY_MADE_OR_LOST = ? WHERE id = ?
+            ''', (money, trade_id))
+            conn.commit()

@@ -103,6 +103,7 @@
                     <th>Target Price</th>
                     <th>Stop Loss</th>
                     <th>Status</th>
+                    <th>Profit</th>
                 </tr>
             </thead>
             <tbody>
@@ -129,10 +130,27 @@
                             <span class="badge badge-failed">FAILED</span>
                         {% endif %}
                     </td>
+                    
+                    <td style="font-weight: 600; {% if trade.MONEY_MADE_OR_LOST is not none %}{% if trade.MONEY_MADE_OR_LOST > 0 %}color: #10b981;{% elif trade.MONEY_MADE_OR_LOST < 0 %}color: #ef4444;{% else %}color: #9ca3af;{% endif %}{% else %}color: #9ca3af;{% endif %}">
+                        {% if trade.MONEY_MADE_OR_LOST is not none %}
+                            {{ "%+.2f"|format(trade.MONEY_MADE_OR_LOST) }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-    </div>
+
+        <div class="stats-header" style="margin-top: 20px; border-top: 1px solid #374151; border-bottom: none; padding-top: 15px;">
+            <h3 style="margin: 0; color: white;">Total Profit/Loss</h3>
+            <div style="background: #1f2937; padding: 12px 20px; border-radius: 6px; font-weight: bold; font-size: 1.2rem;">
+                {% set total_profit = trades | map(attribute='MONEY_MADE_OR_LOST') | list | sum %}
+                <span style="{% if total_profit > 0 %}color: #10b981;{% elif total_profit < 0 %}color: #ef4444;{% else %}color: #9ca3af;{% endif %}">
+                    {{ "%+.2f"|format(total_profit) }}
+                </span>
+            </div>
+        </div>
 </body>
 </html>
