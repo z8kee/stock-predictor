@@ -43,9 +43,10 @@ class TradeHistoryDB:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                UPDATE trade_history SET status = ? WHERE id = ? AND money_made_or_lost = ?
-            ''', (status, trade_id, money))
+                UPDATE trade_history SET status = ?, MONEY_MADE_OR_LOST = ? WHERE id = ?
+            ''', (status, money, trade_id))
             conn.commit()
+            updated = cursor.rowcount
 
     def get_all_trades(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -85,10 +86,19 @@ class TradeHistoryDB:
         
 
     def update_money_made_or_lost(self, trade_id, money):
-        """Update the money_made_or_lost field for a trade."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE trade_history SET MONEY_MADE_OR_LOST = ? WHERE id = ?
             ''', (money, trade_id))
             conn.commit()
+
+    def delete_trade(self, trade_id):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM trade_history WHERE id = ?', (trade_id,))
+            conn.commit()
+            return cursor.rowcount
+        
+# f = TradeHistoryDB()
+# f.delete_trade(14)

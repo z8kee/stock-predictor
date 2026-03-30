@@ -1,10 +1,11 @@
 import yfinance as yf, pandas as pd, numpy as np, pickle, tensorflow as tf
 import requests, os, json, time
+from datetime import datetime
 from flask import Flask, render_template, jsonify
 from functools import lru_cache
 from dotenv import load_dotenv
-from predictor import SentimentAnalyser
 from finance import compute_indicators_and_pct
+from predictor import SentimentAnalyser
 from db import TradeHistoryDB
 
 load_dotenv()
@@ -14,14 +15,17 @@ stock_cache = {}
 model_cache = {}
 
 black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
-barrier_targets = {'1m': 6.5, '5m': 7.5, '15m': 7.0, '1h': 6.0, '1d': 4.5}
+barrier_targets = {'1m': 3.5, '5m': 5.0, '15m': 5.5, '1h': 6.0, '1d': 4.5}
+timeframe_timeouts = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400}
+max_duration = {'1m': 120, '5m': 60, '15m': 32, '1h': 24, '1d': 20} # in number of candles
 labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
 period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
 window_sizes = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
 
-rr_ratio = 1.25
-max_open_trades = 3
-max_duration = 120
+rr_ratio = 1.5
+max_open_trades = 8
+risk_per_trade = 150.0 
+point_value_per_unit = 1.0
 
 analyser = SentimentAnalyser()
 trade_db = TradeHistoryDB()
@@ -141,10 +145,9 @@ def get_news_sentiment(ticker):
 
 def get_models(timeframe):
     if timeframe not in model_cache:
-        custom_objects = {'mse': tf.keras.losses.MeanAbsoluteError, 'mae': tf.keras.losses.MeanAbsoluteError}
         model_cache[timeframe] = {
-            'predictor': tf.keras.models.load_model(f'models/predictor_{timeframe}.keras', custom_objects=custom_objects),
-            'autoencoder': tf.keras.models.load_model(f'models/autoencoder_{timeframe}.keras', custom_objects=custom_objects),
+            'predictor': tf.keras.models.load_model(f'models/predictor_{timeframe}.keras'),
+            'autoencoder': tf.keras.models.load_model(f'models/autoencoder_{timeframe}.keras'),
             'f_scaler': pickle.load(open(f'models/scaler_features_{timeframe}.pkl', 'rb')),
             'anom_scaler': pickle.load(open(f'models/scaler_anom_{timeframe}.pkl', 'rb')),
         }
@@ -208,7 +211,6 @@ def predict(ticker, timeframe):
         finbert_sentiment_score = float(analyser.get_sentiment_score(headlines)) if headlines else 0.0
         sentiment_input = np.array([[finbert_sentiment_score]])
 
-        # 5. Predict
         current_price = float(raw_df['Close'].iloc[-1])
         
         high_low = raw_df['High'] - raw_df['Low']
@@ -217,50 +219,136 @@ def predict(ticker, timeframe):
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         current_atr = float(tr.rolling(12).mean().iloc[-1])
 
+        
+        local_tz = datetime.now().astimezone().tzinfo
+        
+        if raw_df.index.tz is not None:
+            yf_utc_index = raw_df.index.tz_convert('UTC').tz_localize(None)
+        else:
+            yf_utc_index = raw_df.index
+        
         open_trades = trade_db.get_trades_by_status('OPEN')
-        safe_index = raw_df.index.tz_localize(None) if raw_df.index.tz is not None else raw_df.index
+        #print(f"[TRADE CHECK] Found {len(open_trades)} OPEN trades")
+        
         for trade in open_trades:
             if trade['ticker'] == ticker:
+                #print(f"[TRADE CHECK] Processing {trade['signal']} trade #{trade['id']}: {trade['entry_price']} | TP: {trade['target_price']} | SL: {trade['stop_loss']}")
                 status = 'OPEN'
+                
+                
+                try:
+                    local_trade_time = pd.to_datetime(trade['date_time'])
+                    
+                    if local_trade_time.tz is not None:
+                        trade_time_utc = local_trade_time.tz_convert('UTC').tz_localize(None)
 
-                trade_time = pd.to_datetime(trade['date_time'])
-                post_trade_df = raw_df[safe_index >= trade_time]
+                    else:
+                        trade_time_utc = local_trade_time.tz_localize(local_tz).tz_convert('UTC').tz_localize(None)
+                
+                except Exception as e:
+                    print(f"[TRADE CHECK] Timezone error: {e}, using fallback (naive time)")
+                    trade_time_utc = pd.to_datetime(trade['date_time'])
+                    if trade_time_utc.tz is not None:
+                        trade_time_utc = trade_time_utc.tz_localize(None)
 
+                print(f"[TRADE CHECK] Trade time (UTC naive): {trade_time_utc}")
+                print(f"[TRADE CHECK] Data range: {yf_utc_index.min()} to {yf_utc_index.max()}")
+                
+                try:
+                    post_trade_df = raw_df[yf_utc_index >= trade_time_utc]
+                except TypeError as e:
+                    print(f"[TRADE CHECK] Index comparison error: {e}. Retrying with naive conversion...")
+                    # Force both to tz-naive
+                    if yf_utc_index.tz is not None:
+                        yf_utc_index = yf_utc_index.tz_localize(None)
+                    if trade_time_utc.tz is not None:
+                        trade_time_utc = trade_time_utc.tz_localize(None)
+                    post_trade_df = raw_df[yf_utc_index >= trade_time_utc]
+                
                 if not post_trade_df.empty:
-                    highest_price_in_period = float(post_trade_df['High'].max())
-                    lowest_price_in_period = float(post_trade_df['Low'].min())
-                
-                if len(post_trade_df) >= max_duration:
-                    curr_price = float(post_trade_df['Close'].iloc[-1])
-                    if trade['signal'] == 'BUY':
-                        status = 'SUCCESSFUL' if curr_price > trade['entry_price'] else 'FAILED'
-                    elif trade['signal'] == 'SELL':
-                        status = 'SUCCESSFUL' if curr_price < trade['entry_price'] else 'FAILED'
+                    tp_hit_first = None
+                    
+                    for idx, row in post_trade_df.iterrows():
+                        high = float(row['High'])
+                        low = float(row['Low'])
+                        
+                        if trade['signal'] == 'BUY':
+                            tp_hit = high >= trade['target_price']
+                            sl_hit = low <= trade['stop_loss']
+                            
+                            if tp_hit and sl_hit:
+                                tp_distance = abs(trade['target_price'] - high)
+                                sl_distance = abs(trade['stop_loss'] - low)
+                                tp_hit_first = (tp_distance <= sl_distance)
+                                print(f"Both TP and SL hit. Was TP closer: {tp_hit_first}")
+                            elif tp_hit:
+                                tp_hit_first = True
+                            elif sl_hit:
+                                tp_hit_first = False
+                        
+                        elif trade['signal'] == 'SELL':
+                            tp_hit = low <= trade['target_price']
+                            sl_hit = high >= trade['stop_loss']
+                            
+                            if tp_hit and sl_hit:
+                                tp_distance = abs(low - trade['target_price'])
+                                sl_distance = abs(high - trade['stop_loss'])
 
-                if trade['signal'] == 'BUY':
-                    if highest_price_in_period >= trade['target_price']: status = 'SUCCESSFUL'
-                    elif lowest_price_in_period <= trade['stop_loss']: status = 'FAILED'
-                elif trade['signal'] == 'SELL':
-                    if lowest_price_in_period <= trade['target_price']: status = 'SUCCESSFUL'
-                    elif highest_price_in_period >= trade['stop_loss']: status = 'FAILED'
-                
-                if status != 'OPEN':
-                    if trade['signal'] == 'BUY':
-                        strategy = (current_price - trade['entry_price']) * round(current_atr * 1.25, 1)
-                    elif trade['signal'] == 'SELL':
-                        strategy = (trade['entry_price'] - current_price) * round(current_atr * 1.25, 1)
+                                tp_hit_first = (tp_distance <= sl_distance)
+                                print(f"Both TP and SL hit. Was TP closer: {tp_hit_first}")
+                            elif tp_hit:
+                                tp_hit_first = True
 
-                    trade_db.update_trade_status(trade['id'], status, strategy)
+                            elif sl_hit:
+                                tp_hit_first = False
+                        
+                        if tp_hit_first is not None:
+                            status = 'SUCCESSFUL' if tp_hit_first else 'FAILED'
+                            break
+                    
+                    if status == 'OPEN' and len(post_trade_df) >= max_duration.get(timeframe, 120):
+                        curr_price = float(post_trade_df['Close'].iloc[-1])
+                        if trade['signal'] == 'BUY':
+                            status = 'SUCCESSFUL' if curr_price > trade['entry_price'] else 'FAILED'
+                        elif trade['signal'] == 'SELL':
+                            status = 'SUCCESSFUL' if curr_price < trade['entry_price'] else 'FAILED'
+                        print(f"[TRADE CHECK] Max duration hit, closing with status: {status}")
+                    
+                    if status != 'OPEN':
+                        sl_distance = abs(trade['entry_price'] - trade['stop_loss'])
+                        
+                        if sl_distance > 0:
+                            raw_units = risk_per_trade / (sl_distance * point_value_per_unit)
+                            units = int(round(raw_units, 0))
+                        else:
+                            units = 1
+
+                        if status == 'SUCCESSFUL':
+                            exit_price = trade['target_price']
+                        elif status == 'FAILED':
+                            exit_price = trade['stop_loss']
+                        else:
+                            exit_price = float(post_trade_df['Close'].iloc[-1])
+
+                        if trade['signal'] == 'BUY':
+                            points_captured = exit_price - trade['entry_price']
+                        elif trade['signal'] == 'SELL':
+                            points_captured = trade['entry_price'] - exit_price
+
+                        strategy = points_captured * units * point_value_per_unit
+                        print(f"[TRADE CHECK] Updating trade {trade['id']}: {status}, PnL={strategy}")
+
+                        trade_db.update_trade_status(trade['id'], status, strategy)
 
         probs = models['predictor'].predict([x_input, sentiment_input, anomaly_scaled], verbose=0)[0]
 
         curr_shift = 3.5 if float(anomaly_raw) < black_swan_timeframes[timeframe] else 1.5
 
         try:
-            llm_data = fetch_llm_sentiment(ticker, "gpt-4o-mini")
+            llm_data = fetch_llm_sentiment(ticker, "gpt-5.4-mini")
             openai_score = float(llm_data.get("rating", 0.0))
             print(f"Openai score: {openai_score}, FinBERT score: {finbert_sentiment_score}")
-            final_sentiment = (finbert_sentiment_score * 0.2) + (openai_score * 0.8)
+            final_sentiment = (finbert_sentiment_score * 0.3) + (openai_score * 0.7)
         except Exception as e:
             print(f"LLM sentiment failed, defaulting to 0: {e}")
             openai_score = 0.0
@@ -273,22 +361,50 @@ def predict(ticker, timeframe):
         print(f"Buy: {probs[2]:.3f} | Sell: {probs[0]:.3f} | Hold: {probs[1]:.3f} | ATR: {current_atr:.4f}")
         
         if signal in ['BUY', 'SELL']:
-            currently_open = [t for t in trade_db.get_trades_by_status('OPEN') if t['ticker'] == ticker]
+            # Get ALL trades (not just open) to check for recent duplicates
+            all_trades = trade_db.get_all_trades()
+            ticker_trades = [t for t in all_trades if t['ticker'] == ticker]
+            currently_open = [t for t in ticker_trades if t['status'] == 'OPEN']
 
             if len(currently_open) <= max_open_trades:
-                profit_factor = (barrier_targets.get(timeframe, 6.5))/2
+                # Check if a trade was placed too recently (within timeframe window)
+                # Use current system time, not candle time
+                now = datetime.now()
+                recent_trade_exists = False
                 
-                profit_dist = profit_factor * current_atr
-                stop_dist = profit_dist / rr_ratio
+                if ticker_trades:  # If there are any trades for this ticker
+                    most_recent_trade = max(ticker_trades, key=lambda t: pd.to_datetime(t['date_time']))
+                    last_trade_time = pd.to_datetime(most_recent_trade['date_time'])
+                    
+                    # Remove timezone info from both for comparison
+                    if last_trade_time.tz is not None:
+                        last_trade_time = last_trade_time.tz_localize(None)
+                    now_naive = now.replace(tzinfo=None)
+                    
+                    time_since_last_trade = (now_naive - last_trade_time).total_seconds()
+                    timeframe_timeout = timeframe_timeouts.get(timeframe, 60)
+                    
+                    print(f"[DEBUG] Last trade for {ticker}: {last_trade_time}, Time since: {time_since_last_trade:.1f}s, Timeout: {timeframe_timeout}s")
+                    
+                    if time_since_last_trade < timeframe_timeout:
+                        print(f"[SKIP] Recent trade found for {ticker} ({time_since_last_trade:.1f}s ago). Skipping to avoid spam.")
+                        recent_trade_exists = True
                 
-                if signal == 'BUY':
-                    target_price = current_price + profit_dist
-                    stop_loss = current_price - stop_dist
-                else: # SELL
-                    target_price = current_price - profit_dist
-                    stop_loss = current_price + stop_dist
+                if not recent_trade_exists:
+                    profit_factor = (barrier_targets.get(timeframe, 3.5))
+                    
+                    profit_dist = profit_factor * current_atr
+                    stop_dist = profit_dist / rr_ratio
+                    
+                    if signal == 'BUY':
+                        target_price = current_price + profit_dist
+                        stop_loss = current_price - stop_dist
+                    else: # SELL
+                        target_price = current_price - profit_dist
+                        stop_loss = current_price + stop_dist
 
-                trade_db.insert_trade(ticker, signal, current_price, target_price, stop_loss, timeframe)
+                    print(f"[INSERT] Placing {signal} trade for {ticker} at {current_price}")
+                    trade_db.insert_trade(ticker, signal, current_price, target_price, stop_loss, timeframe, 0)
 
         return jsonify({
             'signal': signal,

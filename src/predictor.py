@@ -416,25 +416,22 @@ def apply_signal_gap(predictions, min_gap=2):
 
 
 def predict_and_visualise(timeframe):
-    custom_objects = {
-        'mse': tf.keras.losses.MeanAbsoluteError,
-        'mae': tf.keras.losses.MeanAbsoluteError
-    }
-    model    = tf.keras.models.load_model(
-        f'predictor_{timeframe}.keras',  custom_objects=custom_objects)
-    ae_model = tf.keras.models.load_model(
-        f'autoencoder_{timeframe}.keras', custom_objects=custom_objects)
+    model = tf.keras.models.load_model(f'src/models/predictor_{timeframe}.keras')
+    ae_model = tf.keras.models.load_model(f'src/models/autoencoder_{timeframe}.keras')
 
-    with open(f'scaler_target_{timeframe}.pkl', 'rb') as fh:
+    with open(f'src/models/scaler_target_{timeframe}.pkl', 'rb') as fh:
         target_scaler = pickle.load(fh)
-    with open(f'scaler_anom_{timeframe}.pkl', 'rb') as fh:
+    with open(f'src/models/scaler_anom_{timeframe}.pkl', 'rb') as fh:
         anom_scaler = pickle.load(fh)
+
+    data = prepare_data(f'data/{timeframe}', timeframe)
+    if data is None:
+        print(f"No data found for {timeframe}")
+        return
 
     (_, _, _,
      X_val, Y_val_trend, Y_val_signal,
-     X_te,  Y_te_trend,  Y_te_signal) = prepare_data(
-        f'/content/sample_data/data/{timeframe}', timeframe
-    )
+     X_te,  Y_te_trend,  Y_te_signal) = data
 
     val_ae_preds   = ae_model.predict(X_val, verbose=0)
     val_anom_raw   = np.mean(np.abs(X_val - val_ae_preds), axis=(1, 2)).reshape(-1, 1)
@@ -520,6 +517,6 @@ def predict_and_visualise(timeframe):
 if __name__ == "__main__":
     print("GPU Available:", tf.config.list_physical_devices('GPU'))
 
-    train()
-    check()
-    predict_and_visualise()
+    #train()
+    #check()
+    predict_and_visualise('1h')

@@ -6,27 +6,55 @@ def apply_triple_barrier(df, forward_window, profit_factor, stop_factor):
     lows = df['Low'].values
     atrs = df['ATR_pct'].values
     n = len(df)
-    signals = np.ones(n)
+    signals = np.ones(n) # Default to 1 (HOLD)
 
-    profit_targets = closes * (1 + profit_factor * atrs)
-    stop_losses = closes * (1 - stop_factor * atrs)
+    # calculate absolute distance for Targets and Stops
+    profit_dist = profit_factor * atrs * closes
+    stop_dist = stop_factor * atrs * closes
 
     for i in range(n - forward_window):
         future_highs = highs[i+1 : i+1+forward_window]
         future_lows = lows[i+1 : i+1+forward_window]
 
-        buy_hit = np.argmax(future_highs >= profit_targets[i])
-        sell_hit = np.argmax(future_lows <= stop_losses[i])
+        buy_target = closes[i] + profit_dist[i]
+        buy_stop = closes[i] - stop_dist[i]
 
-        buy_triggered = future_highs[buy_hit] >= profit_targets[i]
-        sell_triggered = future_lows[sell_hit] <= stop_losses[i]
+        buy_target_hit = np.argmax(future_highs >= buy_target)
+        buy_stop_hit = np.argmax(future_lows <= buy_stop)
 
-        if buy_triggered and sell_triggered:
-            signals[i] = 2 if buy_hit <= sell_hit else 0
-        elif buy_triggered:
+        buy_target_triggered = future_highs[buy_target_hit] >= buy_target
+        buy_stop_triggered = future_lows[buy_stop_hit] <= buy_stop
+
+        buy_success = False
+        if buy_target_triggered:
+            if not buy_stop_triggered:
+                buy_success = True
+            elif buy_target_hit <= buy_stop_hit:
+                buy_success = True # target hit before stop loss
+
+        sell_target = closes[i] - profit_dist[i]
+        sell_stop = closes[i] + stop_dist[i]
+
+        sell_target_hit = np.argmax(future_lows <= sell_target)
+        sell_stop_hit = np.argmax(future_highs >= sell_stop)
+
+        sell_target_triggered = future_lows[sell_target_hit] <= sell_target
+        sell_stop_triggered = future_highs[sell_stop_hit] >= sell_stop
+
+        sell_success = False
+        if sell_target_triggered:
+            if not sell_stop_triggered:
+                sell_success = True
+            elif sell_target_hit <= sell_stop_hit:
+                sell_success = True # target hit before stop loss
+
+        if buy_success and not sell_success:
             signals[i] = 2
-        elif sell_triggered:
+        elif sell_success and not buy_success:
             signals[i] = 0
+        elif buy_success and sell_success:
+            #check which one was hit first
+            signals[i] = 2 if buy_target_hit < sell_target_hit else 0
 
     return signals
 
@@ -35,7 +63,7 @@ def compute_indicators_and_pct(ticker, df, vix_series, interval):
         df.columns = df.columns.get_level_values(0)
     
     forward_windows = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
-    barrier_targets = {'1m': 6.5, '5m': 7.5, '15m': 7.0, '1h': 6.0, '1d': 4.5}
+    barrier_targets = {'1m': 3.5, '5m': 5.0, '15m': 5.5, '1h': 6.0, '1d': 4.5}
     df.index.name = None 
 
     # --- Keep Raw Target for the "Trend Line" ---
