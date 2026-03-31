@@ -66,13 +66,12 @@ def compute_indicators_and_pct(ticker, df, vix_series, interval):
     barrier_targets = {'1m': 3.5, '5m': 5.0, '15m': 5.5, '1h': 6.0, '1d': 4.5}
     df.index.name = None 
 
-    # --- Keep Raw Target for the "Trend Line" ---
-    # We save this before doing any log transforms
+    
     df['Target_Close'] = df['Close']
 
     df['HL_Spread'] = (df['High'] - df['Low']) / df['Close']
     
-    # Technical Indicators
+    # technical indicators
     df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
     df['EMA_Dist'] = (df['Close'] - df['EMA_20']) / df['EMA_20']
     
@@ -86,8 +85,8 @@ def compute_indicators_and_pct(ticker, df, vix_series, interval):
     low_14 = df['Low'].rolling(window=14).min()
     high_14 = df['High'].rolling(window=14).max()
     
-    # %K line (Current close relative to the 14-period range)
-    # This natively scales between 0.0 and 1.0!
+    # %K line (current close relative to the 14-period range)
+    # this natively scales between 0.0 and 1.0
     df['Stoch_K'] = (df['Close'] - low_14) / (high_14 - low_14)
     
     # %D line (3-period moving average of %K)
