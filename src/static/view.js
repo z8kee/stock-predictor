@@ -1,10 +1,9 @@
-const assetSelect = document.getElementById('Select-Stock');
-const intervalSelect = document.getElementById('Select-Timeframe');
+const stockSelect = document.getElementById('Select-Stock');
+const timeframeSelect = document.getElementById('Select-Timeframe');
 const loadingBar = document.getElementById('loading-bar');
 const predictBtn = document.querySelector('.Predict-btn');
 const newsBtn = document.querySelector('.News-btn');
 const recBtn = document.querySelector('.Recommend-btn')
-const bigBoyGPT = "gpt-5.4-mini";
 
 // initalise the chart
 const chart = LightweightCharts.createChart(document.getElementById('tvchart'), {
@@ -87,8 +86,8 @@ async function handleManualUpdate() {
         updateTimer = null;
     }
 
-    const currentTicker = assetSelect.value;
-    const currentInterval = intervalSelect.value;
+    const currentTicker = stockSelect.value;
+    const currentInterval = timeframeSelect.value;
 
     // wait for full load before queuing the next update
     await fetchAndRenderChart(currentTicker, currentInterval, true);
@@ -118,13 +117,13 @@ function getDelay() {
         '1h': 120000,      // 10 minutes
         '1d': 300000      // 30 minutes
     };
-    return update_delays[intervalSelect.value] || 15000;
+    return update_delays[timeframeSelect.value] || 15000;
 }
 
 function queueNextUpdate() {
     updateTimer = setTimeout(async () => {
-        const currentTicker = assetSelect.value;
-        const currentInterval = intervalSelect.value;
+        const currentTicker = stockSelect.value;
+        const currentInterval = timeframeSelect.value;
     
         await fetchAndRenderChart(currentTicker, currentInterval, false);
 
@@ -133,7 +132,7 @@ function queueNextUpdate() {
 }
 
 async function fetchAndRenderNews() {
-    const ticker = assetSelect.value;
+    const ticker = stockSelect.value;
  
     try {
         newsBtn.textContent = 'Loading...';
@@ -180,8 +179,8 @@ let signalMarkers = [];
 let predictionTimer = null;
 
 async function fetchAndDisplayPrediction() {
-    const ticker = assetSelect.value;
-    const interval = intervalSelect.value;
+    const ticker = stockSelect.value;
+    const interval = timeframeSelect.value;
     const recommended_thresholds = {'1m': {'BUY': 0.4496, 'SELL': 0.4404}, '5m': {'BUY': 0.4649, 'SELL': 0.5310},
                           '15m': {'BUY': 0.4448, 'SELL': 0.4240}, '1h': {'BUY': 0.3884, 'SELL': 0.4237},
                           '1d': {'BUY': 0.7132, 'SELL': 0.4974}
@@ -263,8 +262,8 @@ function startPredictions() {
 
 function updatePredictionPanel(result) {
     const panel = document.getElementById('prediction-panel');
-    const interval = intervalSelect.value;
-    const stock = assetSelect.value;
+    const interval = timeframeSelect.value;
+    const stock = stockSelect.value;
     const black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
     panel.style.display = 'block'; // unhide the panel
 
@@ -295,14 +294,14 @@ function updatePredictionPanel(result) {
 }
 
 async function getAiRecommendations() {
-    const ticker = assetSelect.value;
+    const ticker = stockSelect.value;
     const panel = document.getElementById('recommendation-panel');
     
     recBtn.textContent = 'Agent is Analyzing...';
     recBtn.disabled = true;
     
     try {
-        const response = await fetch(`/api/recommendation/${ticker}/${bigBoyGPT}`);
+        const response = await fetch(`/api/recommendation/${ticker}/gpt-5.4-mini`);
         const data = await response.json();
         
         if (data.error) {
@@ -316,7 +315,7 @@ async function getAiRecommendations() {
 
         panel.style.display = 'block';
         panel.innerHTML = `
-            <h3 style="margin-top:0; color: #ffffff;">What Today Looks Like</h3>
+            <h3 style="margin-top:0; color: #ffffff;">What Today Looks Like on the ${timeframeSelect.value} chart</h3>
             <div style="font-size: 1.3em; font-weight: bold; color: ${recColor}; margin-bottom: 10px;">
                 ${data.recommendation} Day
             </div>
@@ -333,13 +332,13 @@ async function getAiRecommendations() {
 }
 
 // dropdown listeners
-assetSelect.addEventListener('change', handleManualUpdate);
-intervalSelect.addEventListener('change', handleManualUpdate);
+stockSelect.addEventListener('change', handleManualUpdate);
+timeframeSelect.addEventListener('change', handleManualUpdate);
 predictBtn.addEventListener('click', startPredictions);
 newsBtn.addEventListener('click', fetchAndRenderNews);
 recBtn.addEventListener('click', getAiRecommendations);
 
-assetSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
-intervalSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
+stockSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
+timeframeSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
 
 handleManualUpdate();
