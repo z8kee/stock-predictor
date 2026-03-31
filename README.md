@@ -24,15 +24,22 @@ The repository contains the following core components:
    git clone https://github.com/yourusername/stock-predictor.git
    cd stock-predictor
    ```
+
+   If you don't want to fork the repository, then enter this:
+   ```bash
+   git clone https://github.com/z8kee/stock-predictor.git
+   cd stock-predictor\src
+   ```
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
 ### Usage
+Create a `.env` file and store OPENAI_API_KEY=sk... in it, or manually set it when running `python main.py`
+
 Run the main script to start the prediction process:
 ```bash
-cd src
 python main.py
 ```
 
@@ -42,5 +49,4 @@ python main.py
 - **Future Forecasting**: Predict closing prices for the upcoming trading days.
 - **Performance Evaluation**: View Mean Squared Error (MSE) and accuracy graphs for model validation.
 
-## License
-This project is for educational purposes. Please consult with a financial advisor before making any investment decisions.
+This project is for educational purposes.
