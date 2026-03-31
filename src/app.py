@@ -443,7 +443,7 @@ def info():
     return render_template('info.html')
 
 def fetch_llm_sentiment(ticker, model_name):
-    api_key = os.getenv('OPENAI_API_KEY', '') if api_key is None or api_key.strip() == "" else api_key
+    api_key = os.getenv('OPENAI_API_KEY', '') if api is None or api.strip() == "" else api
     if not api_key:
         raise RuntimeError("OpenAI API key not provided. Set it as an environment variable or pass it as an argument.")
     base_url = "https://api.openai.com/v1/chat/completions"
@@ -499,6 +499,6 @@ def trade_history():
 
 if __name__ == '__main__':
     api = input("Enter API Key for openai (or press Enter to skip): ").strip()
-    if api:
+    if api != "":
         os.environ['OPENAI_API_KEY'] = api
     app.run(debug=True, port=5000, use_reloader=False)
