@@ -17,6 +17,7 @@ class TradeHistoryDB:
                     ticker TEXT NOT NULL,
                     timeframe TEXT NOT NULL,
                     signal TEXT NOT NULL CHECK(signal IN ('BUY', 'SELL')),
+                    probability REAL NOT NULL,
                     entry_price REAL NOT NULL,
                     target_price REAL NOT NULL,
                     stop_loss REAL NOT NULL,
@@ -26,14 +27,14 @@ class TradeHistoryDB:
             ''')
             conn.commit()
 
-    def insert_trade(self, ticker, signal, entry_price, target_price, stop_loss, timeframe, money):
+    def insert_trade(self, ticker, signal, probability, entry_price, target_price, stop_loss, timeframe, money):
         date_time = datetime.now().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO trade_history (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss, money_made_or_lost)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (date_time, ticker, timeframe, signal, entry_price, target_price, stop_loss, money))
+                INSERT INTO trade_history (date_time, ticker, timeframe, signal, probability, entry_price, target_price, stop_loss, money_made_or_lost)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (date_time, ticker, timeframe, signal, probability, entry_price, target_price, stop_loss, money))
             conn.commit()
             return cursor.lastrowid
 

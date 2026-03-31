@@ -14,22 +14,25 @@ app = Flask(__name__)
 stock_cache = {}
 model_cache = {}
 
-black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
-barrier_targets = {'1m': 3.5, '5m': 5.0, '15m': 5.5, '1h': 6.0, '1d': 4.5}
-timeframe_timeouts = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400}
-max_duration = {'1m': 120, '5m': 60, '15m': 32, '1h': 24, '1d': 20} # in number of candles
-labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
-period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
-window_sizes = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
-
 rr_ratio = 1.5
 max_open_trades = 8
 risk_per_trade = 150.0 
 point_value_per_unit = 1.0
 
+black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
+barrier_targets = {'1m': 3.5, '5m': 5.0, '15m': 5.5, '1h': 6.0, '1d': 4.5}
+timeframe_timeouts = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400}
+max_duration = {'1m': 120, '5m': 60, '15m': 32, '1h': 24, '1d': 20} 
+labels = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
+period_map = {'1m': '7d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': 'max'}
+window_sizes = {'1m': 30, '5m': 48, '15m': 32, '1h': 24, '1d': 20}
+recommended_thresholds = {'1m': {'BUY': 0.4496, 'SELL': 0.4404}, '5m': {'BUY': 0.4649, 'SELL': 0.5310},
+                          '15m': {'BUY': 0.4448, 'SELL': 0.4240}, '1h': {'BUY': 0.3884, 'SELL': 0.4237},
+                          '1d': {'BUY': 0.7132, 'SELL': 0.4974}
+                          }
+
 analyser = SentimentAnalyser()
 trade_db = TradeHistoryDB()
-print("analyser ready twin")
 
 @app.route('/')
 def start():
@@ -235,6 +238,7 @@ def predict(ticker, timeframe):
                 #print(f"[TRADE CHECK] Processing {trade['signal']} trade #{trade['id']}: {trade['entry_price']} | TP: {trade['target_price']} | SL: {trade['stop_loss']}")
                 status = 'OPEN'
                 
+                yf_utc_index_local = yf_utc_index
                 
                 try:
                     local_trade_time = pd.to_datetime(trade['date_time'])
@@ -251,59 +255,71 @@ def predict(ticker, timeframe):
                     if trade_time_utc.tz is not None:
                         trade_time_utc = trade_time_utc.tz_localize(None)
 
-                print(f"[TRADE CHECK] Trade time (UTC naive): {trade_time_utc}")
-                print(f"[TRADE CHECK] Data range: {yf_utc_index.min()} to {yf_utc_index.max()}")
+                # print(f"[TRADE CHECK] Trade time (UTC naive): {trade_time_utc}")
+                # print(f"[TRADE CHECK] Data range: {yf_utc_index_local.min()} to {yf_utc_index_local.max()}")
                 
                 try:
-                    post_trade_df = raw_df[yf_utc_index >= trade_time_utc]
+                    post_trade_df = raw_df[yf_utc_index_local >= trade_time_utc]
                 except TypeError as e:
                     print(f"[TRADE CHECK] Index comparison error: {e}. Retrying with naive conversion...")
-                    # Force both to tz-naive
-                    if yf_utc_index.tz is not None:
-                        yf_utc_index = yf_utc_index.tz_localize(None)
+                    # Force both to tz-naive (use local copy to avoid affecting other trades)
+                    if yf_utc_index_local.tz is not None:
+                        yf_utc_index_local = yf_utc_index_local.tz_localize(None)
                     if trade_time_utc.tz is not None:
                         trade_time_utc = trade_time_utc.tz_localize(None)
-                    post_trade_df = raw_df[yf_utc_index >= trade_time_utc]
+                    post_trade_df = raw_df[yf_utc_index_local >= trade_time_utc]
                 
                 if not post_trade_df.empty:
                     tp_hit_first = None
                     
-                    for idx, row in post_trade_df.iterrows():
+                    print(f"[TRADE CHECK #{trade['id']}] {trade['signal']} | Entry: {trade['entry_price']} | TP: {trade['target_price']} | SL: {trade['stop_loss']} | Candles: {len(post_trade_df)}")
+                    
+                    for candle_count, (idx, row) in enumerate(post_trade_df.iterrows(), 1):
                         high = float(row['High'])
                         low = float(row['Low'])
+                        close = float(row['Close'])
                         
                         if trade['signal'] == 'BUY':
                             tp_hit = high >= trade['target_price']
                             sl_hit = low <= trade['stop_loss']
                             
+                            if tp_hit or sl_hit:
+                                print(f"  [Candle {candle_count}] H:{high:.2f} L:{low:.2f} C:{close:.2f} | TP_hit:{tp_hit} SL_hit:{sl_hit}")
+                            
                             if tp_hit and sl_hit:
                                 tp_distance = abs(trade['target_price'] - high)
                                 sl_distance = abs(trade['stop_loss'] - low)
                                 tp_hit_first = (tp_distance <= sl_distance)
-                                print(f"Both TP and SL hit. Was TP closer: {tp_hit_first}")
+                                print(f"  [BOTH HIT] TP_dist:{tp_distance:.4f} SL_dist:{sl_distance:.4f} => TP_first:{tp_hit_first}")
                             elif tp_hit:
                                 tp_hit_first = True
+                                print(f"  [TP HIT] at {high:.2f}")
                             elif sl_hit:
                                 tp_hit_first = False
+                                print(f"  [SL HIT] at {low:.2f}")
                         
                         elif trade['signal'] == 'SELL':
                             tp_hit = low <= trade['target_price']
                             sl_hit = high >= trade['stop_loss']
                             
+                            if tp_hit or sl_hit:
+                                print(f"  [Candle {candle_count}] H:{high:.2f} L:{low:.2f} C:{close:.2f} | TP_hit:{tp_hit} SL_hit:{sl_hit}")
+                            
                             if tp_hit and sl_hit:
                                 tp_distance = abs(low - trade['target_price'])
                                 sl_distance = abs(high - trade['stop_loss'])
-
                                 tp_hit_first = (tp_distance <= sl_distance)
-                                print(f"Both TP and SL hit. Was TP closer: {tp_hit_first}")
+                                print(f"  [BOTH HIT] TP_dist:{tp_distance:.4f} SL_dist:{sl_distance:.4f} => TP_first:{tp_hit_first}")
                             elif tp_hit:
                                 tp_hit_first = True
-
+                                print(f"  [TP HIT] at {low:.2f}")
                             elif sl_hit:
                                 tp_hit_first = False
+                                print(f"  [SL HIT] at {high:.2f}")
                         
                         if tp_hit_first is not None:
                             status = 'SUCCESSFUL' if tp_hit_first else 'FAILED'
+                            print(f"[TRADE CHECK #{trade['id']}] CLOSED as {status}")
                             break
                     
                     if status == 'OPEN' and len(post_trade_df) >= max_duration.get(timeframe, 120):
@@ -355,12 +371,12 @@ def predict(ticker, timeframe):
             final_sentiment = finbert_sentiment_score
 
         adj_buy, adj_hold, adj_sell = analyser.apply_sentiment_scaling(probs[2], probs[1], probs[0], final_sentiment, curr_shift)
-        
-        predicted_class = int(np.argmax([adj_sell, adj_hold, adj_buy]))
+        prob_list = [adj_sell, adj_hold, adj_buy]
+        predicted_class = int(np.argmax([prob_list[0], prob_list[1], prob_list[2]]))
         signal = labels[predicted_class]
         print(f"Buy: {probs[2]:.3f} | Sell: {probs[0]:.3f} | Hold: {probs[1]:.3f} | ATR: {current_atr:.4f}")
         
-        if signal in ['BUY', 'SELL']:
+        if signal in ['BUY', 'SELL'] and prob_list[predicted_class] >= recommended_thresholds.get(timeframe, {}).get(signal.upper(), 0.5):
             # Get ALL trades (not just open) to check for recent duplicates
             all_trades = trade_db.get_all_trades()
             ticker_trades = [t for t in all_trades if t['ticker'] == ticker]
@@ -404,7 +420,7 @@ def predict(ticker, timeframe):
                         stop_loss = current_price + stop_dist
 
                     print(f"[INSERT] Placing {signal} trade for {ticker} at {current_price}")
-                    trade_db.insert_trade(ticker, signal, current_price, target_price, stop_loss, timeframe, 0)
+                    trade_db.insert_trade(ticker, signal, prob_list[predicted_class], current_price, target_price, stop_loss, timeframe, 0)
 
         return jsonify({
             'signal': signal,
@@ -413,6 +429,7 @@ def predict(ticker, timeframe):
                 'hold': float(adj_hold),
                 'buy':  float(adj_buy)
             },
+            'winning_prob': round(float(max(adj_buy, adj_hold, adj_sell)), 2),
             'sentiment': final_sentiment,
             'anomaly': float(anomaly_raw)
         })

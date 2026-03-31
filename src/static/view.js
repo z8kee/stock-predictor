@@ -182,7 +182,10 @@ let predictionTimer = null;
 async function fetchAndDisplayPrediction() {
     const ticker = assetSelect.value;
     const interval = intervalSelect.value;
-
+    const recommended_thresholds = {'1m': {'BUY': 0.4496, 'SELL': 0.4404}, '5m': {'BUY': 0.4649, 'SELL': 0.5310},
+                          '15m': {'BUY': 0.4448, 'SELL': 0.4240}, '1h': {'BUY': 0.3884, 'SELL': 0.4237},
+                          '1d': {'BUY': 0.7132, 'SELL': 0.4974}
+                          }
     try {
         const response = await fetch(`/api/predict/${ticker}/${interval}`);
         const result = await response.json();
@@ -191,7 +194,7 @@ async function fetchAndDisplayPrediction() {
 
         updatePredictionPanel(result);
 
-        if (result.signal !== 'HOLD') {
+        if (result.signal !== 'HOLD' && result.winning_prob >= recommended_thresholds[interval][result.signal]) {
             
             const allData = candleSeries.data();
             if (!allData || allData.length === 0) return;
@@ -234,7 +237,6 @@ async function fetchAndDisplayPrediction() {
     }
 }
 
-// Replaces your old startPredictions to use dynamic setTimeout
 async function predictionLoop() {
     await fetchAndDisplayPrediction();
     if (predictionTimer !== null) {
