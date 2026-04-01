@@ -4,6 +4,7 @@ from datetime import datetime
 from flask import Flask, render_template, jsonify
 from functools import lru_cache
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
 from finance import compute_indicators_and_pct
 from predictor import SentimentAnalyser
 from db import TradeHistoryDB
@@ -11,12 +12,14 @@ from db import TradeHistoryDB
 load_dotenv()
 app = Flask(__name__)
 
+app_active = False
+
 stock_cache = {}
 model_cache = {}
 
 rr_ratio = 1.5
 max_open_trades = 8
-risk_per_trade = 150.0 
+risk_per_trade = 175.0 
 point_value_per_unit = 1.0
 
 black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
@@ -33,6 +36,21 @@ recommended_thresholds = {'1m': {'BUY': 0.4496, 'SELL': 0.4404}, '5m': {'BUY': 0
 
 analyser = SentimentAnalyser()
 trade_db = TradeHistoryDB()
+
+# Scheduler functions for business hours
+def start_app():
+    global app_active
+    app_active = True
+    print("App ACTIVE: Processing requests (7:00 AM)")
+
+def stop_app():
+    global app_active
+    app_active = False
+    print("App INACTIVE: No requests processed (9:00 PM)")
+
+def check_business_hours():
+    global app_active
+    return app_active
 
 @app.route('/')
 def start():
@@ -55,6 +73,8 @@ def robust_download(ticker, interval, period, retries=3):
 
 @app.route('/api/history/<ticker>/<interval>')
 def get_history(ticker, interval):
+    if not check_business_hours():
+        return jsonify({"error": "Outside business hours (7am-9pm, Mon-Fri only)"}), 503
     # Create a unique key for the cache (e.g., "GC=F_5m")
     cache_key = f"{ticker}_{interval}"
     
@@ -109,6 +129,8 @@ def get_history(ticker, interval):
     
 @app.route('/api/news/<ticker>')
 def get_news_sentiment(ticker):
+    if not check_business_hours():
+        return jsonify({"error": "Outside business hours (7am-9pm, Mon-Fri only)"}), 503
     print(f"Fetching news and calculating custom sentiment for {ticker}...")
     try:
         stock = yf.Ticker(ticker)
@@ -166,6 +188,8 @@ def fetch_cached_vix(ttl_hash):
 
 @app.route('/api/predict/<ticker>/<timeframe>')
 def predict(ticker, timeframe):
+    if not check_business_hours():
+        return jsonify({"error": "Outside business hours (7am-9pm, Mon-Fri only)"}), 503
     try:
         feature_cols = ['Open', 'High', 'Low', 'Close',
                         'VIX', 'EMA_Dist', '50TD', '200TD',
@@ -443,9 +467,7 @@ def info():
     return render_template('info.html')
 
 def fetch_llm_sentiment(ticker, model_name):
-    api_key = os.getenv('OPENAI_API_KEY', '') if api is None or api.strip() == "" else api
-    if not api_key:
-        raise RuntimeError("OpenAI API key not provided. Set it as an environment variable or pass it as an argument.")
+    api_key = os.getenv('OPENAI_API_KEY', '')
     base_url = "https://api.openai.com/v1/chat/completions"
 
     stock = yf.Ticker(ticker)
@@ -483,6 +505,8 @@ def fetch_llm_sentiment(ticker, model_name):
 
 @app.route('/api/recommendation/<ticker>/<gpt_model>')
 def frontend_recommendation(ticker, gpt_model):
+    if not check_business_hours():
+        return jsonify({"error": "Outside business hours (7am-9pm, Mon-Fri only)"}), 503
     try:
         data = fetch_llm_sentiment(ticker, gpt_model)
         return jsonify(data)
@@ -501,4 +525,12 @@ if __name__ == '__main__':
     api = input("Enter API Key for openai (or press Enter to skip): ").strip()
     if api != "":
         os.environ['OPENAI_API_KEY'] = api
+    
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(start_app, 'cron', day_of_week='0-4', hour=7, minute=0)
+    scheduler.add_job(stop_app, 'cron', day_of_week='0-4', hour=21, minute=0)
+    scheduler.start()
+    
+    print("Scheduler started: Active 7am-9pm, Mon-Fri only")
+    
     app.run(debug=True, port=5000, use_reloader=False)

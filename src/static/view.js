@@ -265,9 +265,13 @@ function updatePredictionPanel(result) {
     const interval = timeframeSelect.value;
     const stock = stockSelect.value;
     const black_swan_timeframes = {'1m': 1.7956, '5m': 2.5867, '15m': 2.7912, '1h': 2.5130, '1d': 0.8591}
+    const recommended_thresholds = {'1m': {'BUY': 0.4496, 'SELL': 0.4404}, '5m': {'BUY': 0.4649, 'SELL': 0.5310},
+                          '15m': {'BUY': 0.4448, 'SELL': 0.4240}, '1h': {'BUY': 0.3884, 'SELL': 0.4237},
+                          '1d': {'BUY': 0.7132, 'SELL': 0.4974}
+                          }
     panel.style.display = 'block'; // unhide the panel
 
-    const signalColor = result.signal === 'BUY' ? '#26a69a' : result.signal === 'SELL' ? '#ef5350' : '#888';
+    const signalColor = result.signal === 'BUY' && result.probabilities.buy >= recommended_thresholds[interval].BUY ? '#26a69a' : result.signal === 'SELL' && result.probabilities.sell >= recommended_thresholds[interval].SELL? '#ef5350' : '#888';
     let anomalyWarning = '';
     if (result.anomaly > black_swan_timeframes[interval]) {
         anomalyWarning = `
@@ -331,14 +335,37 @@ async function getAiRecommendations() {
     }
 }
 
-// dropdown listeners
-stockSelect.addEventListener('change', handleManualUpdate);
-timeframeSelect.addEventListener('change', handleManualUpdate);
+function restoreSelectionsFromStorage() {
+    const savedStock = localStorage.getItem('selectedStock');
+    const savedTimeframe = localStorage.getItem('selectedTimeframe');
+    
+    if (savedStock) stockSelect.value = savedStock;
+    if (savedTimeframe) timeframeSelect.value = savedTimeframe;
+}
+
+function saveSelectionsToStorage() {
+    localStorage.setItem('selectedStock', stockSelect.value);
+    localStorage.setItem('selectedTimeframe', timeframeSelect.value);
+}
+
+stockSelect.addEventListener('change', () => {
+    saveSelectionsToStorage();
+    signalMarkers = [];
+    candleSeries.setMarkers([]);
+    handleManualUpdate();
+});
+
+timeframeSelect.addEventListener('change', () => {
+    saveSelectionsToStorage();
+    signalMarkers = [];
+    candleSeries.setMarkers([]);
+    handleManualUpdate();
+});
+
 predictBtn.addEventListener('click', startPredictions);
 newsBtn.addEventListener('click', fetchAndRenderNews);
 recBtn.addEventListener('click', getAiRecommendations);
 
-stockSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
-timeframeSelect.addEventListener('change', () => { signalMarkers = []; candleSeries.setMarkers([]); });
-
+// Restore and load
+restoreSelectionsFromStorage();
 handleManualUpdate();
