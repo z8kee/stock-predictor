@@ -10,8 +10,8 @@ from predictor import SentimentAnalyser
 from db import TradeHistoryDB
 
 load_dotenv()
-app = Flask(__name__)
 
+app = Flask(__name__)
 app_active = False
 
 stock_cache = {}
@@ -530,7 +530,7 @@ if __name__ == '__main__':
     scheduler.add_job(start_app, 'cron', day_of_week='0-4', hour=7, minute=0)
     scheduler.add_job(stop_app, 'cron', day_of_week='0-4', hour=21, minute=0)
     scheduler.start()
-    
+
     print("Scheduler started: Active 7am-9pm, Mon-Fri only")
     
     app.run(debug=True, port=5000, use_reloader=False)
