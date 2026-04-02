@@ -36,8 +36,7 @@ jobs:
       run: |
         gcloud builds submit \
           --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
-          --project=$PROJECT_ID \
-          --suppress-logs
+          --project=$PROJECT_ID
 
         gcloud run deploy $SERVICE_NAME \
           --image gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
