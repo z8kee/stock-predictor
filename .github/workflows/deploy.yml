@@ -37,7 +37,8 @@ jobs:
         gcloud builds submit \
           --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
           --project=$PROJECT_ID
-
+          --async
+          
         gcloud run deploy $SERVICE_NAME \
           --image gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
           --platform managed \
