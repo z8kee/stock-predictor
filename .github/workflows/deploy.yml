@@ -45,6 +45,7 @@ jobs:
           --memory 2Gi \
           --timeout 3600 \
           --max-instances 2 \
+          --port 5000 \
           --set-env-vars OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
           --project=$PROJECT_ID \
           --allow-unauthenticated
