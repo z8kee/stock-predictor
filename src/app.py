@@ -4,7 +4,6 @@ from datetime import datetime
 from flask import Flask, render_template, jsonify
 from functools import lru_cache
 from dotenv import load_dotenv
-from apscheduler.schedulers.background import BackgroundScheduler
 from finance import compute_indicators_and_pct
 from predictor import SentimentAnalyser
 from db import TradeHistoryDB
@@ -12,7 +11,6 @@ from db import TradeHistoryDB
 load_dotenv()
 
 app = Flask(__name__)
-app_active = False
 
 stock_cache = {}
 model_cache = {}
@@ -38,19 +36,14 @@ analyser = SentimentAnalyser()
 trade_db = TradeHistoryDB()
 
 # Scheduler functions for business hours
-def start_app():
-    global app_active
-    app_active = True
-    print("App ACTIVE: Processing requests (7:00 AM)")
-
-def stop_app():
-    global app_active
-    app_active = False
-    print("App INACTIVE: No requests processed (9:00 PM)")
-
 def check_business_hours():
-    global app_active
-    return app_active
+    now = datetime.now()
+    # Weekday returns 0 for Monday and 6 for Sunday
+    is_weekday = now.weekday() < 5
+    # Check if current hour is between 7:00 and 21:00
+    is_business_hour = 7 <= now.hour < 21
+    
+    return is_weekday and is_business_hour
 
 @app.route('/')
 def start():
@@ -525,12 +518,5 @@ if __name__ == '__main__':
     api = input("Enter API Key for openai (or press Enter to skip): ").strip()
     if api != "":
         os.environ['OPENAI_API_KEY'] = api
-    
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(start_app, 'cron', day_of_week='0-4', hour=7, minute=0)
-    scheduler.add_job(stop_app, 'cron', day_of_week='0-4', hour=21, minute=0)
-    scheduler.start()
-
-    print("Scheduler started: Active 7am-9pm, Mon-Fri only")
     
     app.run(debug=True, port=5000, use_reloader=False)
