@@ -5,7 +5,7 @@ on:
     branches: [ main ]
 
 env:
-  PROJECT_ID: stock-predictor
+  PROJECT_ID: 491759488917
   GAR_LOCATION: europe-west1
   SERVICE_NAME: stock-predictor
   REGION: europe-west1
