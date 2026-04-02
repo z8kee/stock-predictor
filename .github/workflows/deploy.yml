@@ -36,8 +36,9 @@ jobs:
       run: |
         gcloud builds submit \
           --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
-          --project=$PROJECT_ID
-        
+          --project=$PROJECT_ID \
+          --suppress-logs
+
         gcloud run deploy $SERVICE_NAME \
           --image gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
           --platform managed \
@@ -46,4 +47,5 @@ jobs:
           --timeout 3600 \
           --max-instances 2 \
           --set-env-vars OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
-          --project=$PROJECT_ID
+          --project=$PROJECT_ID \
+          --allow-unauthenticated
