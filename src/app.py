@@ -515,8 +515,7 @@ def trade_history():
     return render_template('trade_history.html', trades=trades, ratio=ratio)
 
 if __name__ == '__main__':
-    api = input("Enter API Key for openai (or press Enter to skip): ").strip()
-    if api != "":
-        os.environ['OPENAI_API_KEY'] = api
-    
-    app.run(debug=True, port=5000, use_reloader=False)
+    # app.run(debug=True, port=5000, use_reloader=False)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port, use_reloader=False)
+   
